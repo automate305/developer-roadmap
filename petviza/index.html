@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+  <title>PetViza</title>
+  <meta name="description" content="PetViza — International pet travel certificates handled with expertise and a personal touch." />
+  <meta property="og:title" content="PetViza" />
+  <meta property="og:description" content="PetViza — International pet travel certificates handled with expertise and a personal touch." />
+  <meta property="og:type" content="website" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="PetViza" />
+  <meta name="twitter:description" content="PetViza — International pet travel certificates handled with expertise and a personal touch." />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg width='180' height='180' viewBox='0 0 180 180' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='180' height='180' rx='36' fill='%23FF3C00'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --background: 47 38% 96%;
+      --foreground: 215 57% 15%;
+      --border: 43 18% 84%;
+      --card: 45 44% 98%;
+      --card-foreground: 215 57% 15%;
+      --primary: 215 57% 15%;
+      --primary-foreground: 47 38% 96%;
+      --secondary: 69 66% 53%;
+      --secondary-foreground: 215 57% 15%;
+      --muted: 45 18% 91%;
+      --muted-foreground: 215 21% 42%;
+      --accent: 13 68% 66%;
+      --accent-foreground: 215 57% 15%;
+      --destructive: 4 68% 47%;
+      --destructive-foreground: 47 38% 96%;
+      --input: 43 18% 84%;
+      --ring: 215 57% 15%;
+      --radius: .35rem;
+      --app-font-sans: 'DM Sans', sans-serif;
+      --app-font-serif: 'Space Grotesk', sans-serif;
+      --app-font-mono: 'Space Grotesk', monospace;
+      --shadow: 0 10px 30px -18px hsl(215 57% 15% / .28);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--app-font-sans);
+      background: hsl(var(--background));
+      color: hsl(var(--foreground));
+      overflow-x: hidden;
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    button, a, input, textarea, select { -webkit-tap-highlight-color: transparent; }
+    img { max-width: 100%; display: block; }
+
+    .pv-display { font-family: var(--app-font-serif); }
+
+    .pv-eyebrow {
+      font-family: var(--app-font-mono);
+      letter-spacing: .16em;
+      text-transform: uppercase;
+      font-size: .68rem;
+      font-weight: 700;
+    }
+
+    .pv-shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; }
+
+    .pv-reveal { animation: pv-rise .75s cubic-bezier(.22,1,.36,1) both; }
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity .75s cubic-bezier(.22,1,.36,1), transform .75s cubic-bezier(.22,1,.36,1);
+    }
+    .reveal.is-visible { opacity: 1; transform: translateY(0); }
+
+    .pv-delay-1 { animation-delay: .1s; }
+    .pv-delay-2 { animation-delay: .18s; }
+    .pv-delay-3 { animation-delay: .28s; }
+    .pv-delay-4 { animation-delay: .4s; }
+
+    @keyframes pv-rise {
+      from { opacity: 0; transform: translateY(20px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes pv-drift {
+      from { transform: translate3d(0,0,0) rotate(0); }
+      to { transform: translate3d(0,-8px,0) rotate(1deg); }
+    }
+
+    .pv-drift { animation: pv-drift 7s ease-in-out infinite alternate; }
+
+    .pv-grid {
+      background-image: linear-gradient(hsl(215 57% 15% / .06) 1px, transparent 1px), linear-gradient(90deg, hsl(215 57% 15% / .06) 1px, transparent 1px);
+      background-size: 28px 28px;
+    }
+
+    .pv-card {
+      background: hsl(45 44% 98% / .82);
+      border: 1px solid hsl(43 18% 84%);
+      box-shadow: 0 16px 44px -30px hsl(215 57% 15% / .48);
+    }
+
+    .pv-button {
+      transition: transform .25s ease, background-color .25s ease, box-shadow .25s ease;
+      cursor: pointer; border: none;
+    }
+    .pv-button:hover { transform: translateY(-2px); box-shadow: 0 10px 20px -12px hsl(215 57% 15% / .55); }
+    .pv-button:active { transform: translateY(0); }
+
+    .pv-input {
+      background: hsl(47 38% 96%);
+      border: 1px solid hsl(43 18% 78%);
+      transition: border-color .2s ease, box-shadow .2s ease;
+      font-family: var(--app-font-sans);
+    }
+    .pv-input:focus { outline: none; border-color: hsl(215 57% 15%); box-shadow: 0 0 0 3px hsl(69 66% 53% / .32); }
+
+    .pv-noise::after {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: .035;
+      z-index: 50;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+    }
+
+    @media (max-width: 767px) {
+      .pv-shell { width: min(100% - 32px, 620px); }
+    }
+
+    /* Icons (inline SVG via CSS) */
+    .icon { display: inline-block; vertical-align: middle; flex-shrink: 0; }
+    .icon svg { display: block; }
+
+    /* Utility classes */
+    .flex { display: flex; }
+    .grid { display: grid; }
+    .hidden { display: none; }
+    .block { display: block; }
+    .inline-flex { display: inline-flex; }
+    .relative { position: relative; }
+    .absolute { position: absolute; }
+    .fixed { position: fixed; }
+    .items-center { align-items: center; }
+    .items-start { align-items: start; }
+    .items-end { align-items: end; }
+    .justify-center { justify-content: center; }
+    .justify-between { justify-content: space-between; }
+    .flex-col { flex-direction: column; }
+    .flex-wrap { flex-wrap: wrap; }
+    .gap-1 { gap: .25rem; }
+    .gap-2 { gap: .5rem; }
+    .gap-3 { gap: .75rem; }
+    .gap-4 { gap: 1rem; }
+    .gap-5 { gap: 1.25rem; }
+    .gap-6 { gap: 1.5rem; }
+    .gap-8 { gap: 2rem; }
+    .gap-10 { gap: 2.5rem; }
+    .gap-12 { gap: 3rem; }
+    .gap-14 { gap: 3.5rem; }
+    .w-full { width: 100%; }
+    .max-w-sm { max-width: 24rem; }
+    .max-w-md { max-width: 28rem; }
+    .max-w-lg { max-width: 32rem; }
+    .max-w-xl { max-width: 36rem; }
+    .max-w-2xl { max-width: 42rem; }
+    .max-w-4xl { max-width: 56rem; }
+    .text-center { text-align: center; }
+    .text-left { text-align: left; }
+    .mx-auto { margin-left: auto; margin-right: auto; }
+    .shrink-0 { flex-shrink: 0; }
+    .overflow-hidden { overflow: hidden; }
+    .space-y-3 > * + * { margin-top: .75rem; }
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .-space-x-2 > * + * { margin-left: -.5rem; }
+    .border-t { border-top: 1px solid hsl(var(--border)); }
+    .rounded-full { border-radius: 9999px; }
+    .cursor-pointer { cursor: pointer; }
+    .backdrop-blur-sm { backdrop-filter: blur(4px); }
+    .overflow-y-auto { overflow-y: auto; }
+    .shadow-xl { box-shadow: 0 20px 25px -5px rgb(0 0 0 / .1), 0 8px 10px -6px rgb(0 0 0 / .1); }
+    .shadow-2xl { box-shadow: 0 25px 50px -12px rgb(0 0 0 / .25); }
+    .resize-y { resize: vertical; }
+    .leading-none { line-height: 1; }
+
+    /* Header */
+    .site-header { position: absolute; left: 0; right: 0; top: 0; z-index: 30; }
+    .header-inner { display: flex; height: 6rem; align-items: center; justify-content: space-between; }
+
+    .logo-icon {
+      position: relative; display: flex; height: 2.75rem; width: 2.75rem; flex-shrink: 0;
+      align-items: center; justify-content: center; border-radius: 9999px; border: 2px solid;
+    }
+    .logo-icon--light { border-color: hsl(var(--primary)); background: hsl(var(--primary)); color: hsl(var(--secondary)); }
+    .logo-icon--dark { border-color: hsl(var(--secondary)); background: hsl(var(--secondary)); color: hsl(var(--primary)); }
+    .logo-dot {
+      position: absolute; right: -4px; top: -4px; height: 10px; width: 10px;
+      border-radius: 9999px; border: 2px solid currentColor; background: inherit;
+    }
+    .logo-name { font-family: var(--app-font-serif); font-size: 1.45rem; font-weight: 600; letter-spacing: -.07em; }
+    .logo-sub { margin-top: 4px; font-size: .48rem; font-weight: 700; text-transform: uppercase; letter-spacing: .19em; }
+
+    .nav-desktop { display: none; }
+    @media (min-width: 768px) {
+      .nav-desktop { display: flex; }
+      .mobile-toggle { display: none !important; }
+    }
+
+    .nav-link {
+      background: none; border: none; cursor: pointer;
+      font-size: 13px; font-weight: 700; color: hsl(var(--primary) / .7);
+      transition: color .2s; font-family: var(--app-font-sans);
+    }
+    .nav-link:hover { color: hsl(var(--primary)); }
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: .5rem;
+      background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+      font-size: 13px; font-weight: 700; padding: .75rem 1.25rem;
+      border: none; cursor: pointer; font-family: var(--app-font-sans);
+    }
+
+    .mobile-toggle {
+      background: hsl(var(--primary)); color: hsl(var(--primary-foreground));
+      border: none; padding: .75rem; cursor: pointer;
+    }
+
+    .mobile-menu {
+      margin: 0 1rem; border-top: 1px solid hsl(var(--primary) / .12);
+      background: hsl(var(--background)); padding: 1.25rem; box-shadow: 0 20px 25px -5px rgb(0 0 0 / .1);
+    }
+    @media (min-width: 768px) { .mobile-menu { display: none !important; } }
+
+    .mobile-nav-link {
+      display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid hsl(var(--border)); padding: 1rem 0;
+      text-align: left; font-size: 1rem; font-weight: 700; color: hsl(var(--primary));
+      background: none; border-left: none; border-right: none; border-top: none;
+      width: 100%; cursor: pointer; font-family: var(--app-font-sans);
+    }
+
+    .mobile-cta {
+      margin-top: 1rem; display: flex; align-items: center; justify-content: center; gap: .5rem;
+      background: hsl(var(--secondary)); padding: .875rem 0; font-size: .875rem; font-weight: 700;
+      color: hsl(var(--primary)); border: none; width: 100%; cursor: pointer; font-family: var(--app-font-sans);
+    }
+
+    /* Hero */
+    .hero { position: relative; overflow: hidden; background: hsl(var(--secondary)); padding-top: 8rem; }
+    @media (min-width: 640px) { .hero { padding-top: 9rem; } }
+    .hero-circle-1 {
+      position: absolute; right: -8rem; top: 0; height: 520px; width: 520px;
+      border-radius: 9999px; border: 1px solid hsl(var(--primary) / .1);
+    }
+    @media (min-width: 640px) { .hero-circle-1 { height: 680px; width: 680px; } }
+    .hero-circle-2 {
+      position: absolute; right: -2rem; top: 6rem; height: 20rem; width: 20rem;
+      border-radius: 9999px; border: 1px solid hsl(var(--primary) / .1);
+    }
+    @media (min-width: 640px) { .hero-circle-2 { right: 7rem; } }
+
+    .hero-grid {
+      position: relative; display: grid; min-height: 650px; align-items: center;
+      gap: 2.5rem; padding-bottom: 5rem;
+    }
+    @media (min-width: 1024px) { .hero-grid { grid-template-columns: 1.05fr .95fr; padding-bottom: 6rem; } }
+
+    .hero-title {
+      font-family: var(--app-font-serif);
+      font-size: clamp(3.5rem, 8vw, 6.65rem);
+      font-weight: 600; line-height: .92; letter-spacing: -.075em;
+      color: hsl(var(--primary));
+    }
+    .hero-title span { color: hsl(var(--accent)); }
+
+    .hero-subtitle { margin-top: 2rem; max-width: 32rem; font-size: 1.125rem; line-height: 2; color: hsl(var(--primary) / .72); }
+    @media (min-width: 640px) { .hero-subtitle { font-size: 1.25rem; } }
+
+    .hero-actions { margin-top: 2.25rem; display: flex; flex-direction: column; align-items: flex-start; gap: 1.25rem; }
+    @media (min-width: 640px) { .hero-actions { flex-direction: row; align-items: center; } }
+
+    .hero-cta {
+      display: inline-flex; align-items: center; gap: .75rem;
+      background: hsl(var(--primary)); padding: 1rem 1.75rem;
+      font-size: .875rem; font-weight: 700; color: hsl(var(--primary-foreground));
+      border: none; cursor: pointer; font-family: var(--app-font-sans);
+    }
+
+    .hero-link {
+      display: inline-flex; align-items: center; gap: .5rem;
+      font-size: .875rem; font-weight: 700; color: hsl(var(--primary));
+      text-decoration: underline; text-decoration-color: hsl(var(--accent));
+      text-decoration-thickness: 2px; text-underline-offset: 8px;
+      background: none; border: none; cursor: pointer; font-family: var(--app-font-sans);
+    }
+
+    .hero-trust { margin-top: 3rem; display: flex; align-items: center; gap: 1.25rem; border-top: 1px solid hsl(var(--primary) / .14); padding-top: 1.25rem; }
+    .avatar {
+      display: flex; height: 2.25rem; width: 2.25rem; align-items: center; justify-content: center;
+      border-radius: 9999px; border: 2px solid hsl(var(--secondary));
+      background: hsl(var(--primary)); font-size: .75rem; font-weight: 700; color: hsl(var(--secondary));
+    }
+    .avatar + .avatar { margin-left: -.5rem; }
+
+    .hero-visual { position: relative; display: none; min-height: 520px; }
+    @media (min-width: 1024px) { .hero-visual { display: block; } }
+
+    .hero-card-main {
+      position: absolute; right: 1.25rem; top: 1.25rem; height: 430px; width: 390px;
+      transform: rotate(3deg); background: hsl(var(--primary)); padding: 1.25rem;
+      box-shadow: 0 25px 50px -12px rgb(0 0 0 / .25);
+    }
+    .hero-card-main-inner { height: 100%; border: 1px solid hsl(var(--secondary) / .28); padding: 1.25rem; }
+
+    .hero-card-small {
+      position: absolute; bottom: .5rem; left: 0; z-index: 10; width: 16rem;
+      transform: rotate(-3deg); background: hsl(var(--background)); padding: 1.25rem;
+      box-shadow: 0 20px 25px -5px rgb(0 0 0 / .1);
+    }
+
+    .hero-bar { border-top: 1px solid hsl(var(--primary) / .12); padding: 1rem 0; }
+    .hero-bar-inner {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+      gap: .75rem; font-size: 10px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .14em; color: hsl(var(--primary) / .52);
+    }
+    .hero-bar-line { height: 1px; width: 3rem; background: hsl(var(--primary) / .25); }
+    @media (max-width: 639px) { .hero-bar-line { display: none; } }
+
+    /* Process section */
+    .section-process { background: hsl(var(--background)); padding: 6rem 0 8rem; }
+    @media (min-width: 640px) { .section-process { padding: 8rem 0; } }
+    .process-grid { display: grid; gap: 3rem; }
+    @media (min-width: 1024px) { .process-grid { grid-template-columns: .8fr 1.2fr; } }
+    .process-cards { display: grid; gap: 1rem; }
+    @media (min-width: 640px) { .process-cards { grid-template-columns: repeat(3, 1fr); } }
+    .process-card { border-top: 2px solid hsl(var(--primary)); padding-top: 1.25rem; }
+    .process-card-header { margin-bottom: 3rem; display: flex; align-items: center; justify-content: space-between; }
+
+    /* Expertise section */
+    .section-expertise { background: hsl(215 57% 15%); padding: 6rem 0; color: hsl(var(--background)); }
+    @media (min-width: 640px) { .section-expertise { padding: 8rem 0; } }
+    .expertise-grid { display: grid; gap: 3.5rem; }
+    @media (min-width: 1024px) { .expertise-grid { grid-template-columns: 1fr 1fr; align-items: center; } }
+    .expertise-cards { display: grid; gap: .75rem; }
+    @media (min-width: 640px) { .expertise-cards { grid-template-columns: repeat(2, 1fr); } }
+    .expertise-card {
+      border: 1px solid hsl(var(--background) / .16);
+      background: hsl(var(--background) / .04); padding: 1.5rem;
+      transition: background .2s;
+    }
+    .expertise-card:hover { background: hsl(var(--secondary) / .12); }
+    .expertise-deco {
+      position: absolute; left: -2rem; top: -2.5rem; height: 7rem; width: 7rem;
+      border: 1px solid hsl(var(--secondary) / .5);
+    }
+    @media (min-width: 640px) { .expertise-deco { left: -4rem; top: -4rem; height: 10rem; width: 10rem; } }
+
+    /* Testimonial */
+    .section-testimonial { background: hsl(var(--background)); padding: 6rem 0; }
+    @media (min-width: 640px) { .section-testimonial { padding: 8rem 0; } }
+    .testimonial-quote {
+      font-family: var(--app-font-serif);
+      font-size: 1.875rem; font-weight: 500; line-height: 1.08; letter-spacing: -.05em;
+      color: hsl(var(--primary));
+    }
+    @media (min-width: 640px) { .testimonial-quote { font-size: 3rem; } }
+
+    /* FAQ */
+    .section-faq { border-top: 1px solid hsl(var(--border)); background: hsl(45 18% 91%); padding: 6rem 0; }
+    @media (min-width: 640px) { .section-faq { padding: 8rem 0; } }
+    .faq-grid { display: grid; gap: 3rem; }
+    @media (min-width: 1024px) { .faq-grid { grid-template-columns: .7fr 1.3fr; } }
+    .faq-list { border-top: 2px solid hsl(var(--primary)); }
+    .faq-item { border-bottom: 1px solid hsl(var(--border)); }
+    .faq-button {
+      display: flex; width: 100%; align-items: center; justify-content: space-between;
+      gap: 1.5rem; padding: 1.25rem 0; text-align: left; font-size: 1rem;
+      font-weight: 700; color: hsl(var(--primary));
+      background: none; border: none; cursor: pointer; font-family: var(--app-font-sans);
+    }
+    .faq-chevron { flex-shrink: 0; transition: transform .3s; }
+    .faq-chevron.open { transform: rotate(180deg); }
+    .faq-answer { max-width: 42rem; padding-bottom: 1.5rem; padding-right: 2rem; font-size: .875rem; line-height: 1.7; color: hsl(var(--muted-foreground)); }
+
+    /* Contact */
+    .section-contact { background: hsl(var(--secondary)); padding: 6rem 0; }
+    @media (min-width: 640px) { .section-contact { padding: 8rem 0; } }
+    .contact-grid { display: grid; gap: 3rem; }
+    @media (min-width: 1024px) { .contact-grid { grid-template-columns: .8fr 1.2fr; align-items: start; } }
+    .contact-info { font-size: .875rem; font-weight: 700; color: hsl(var(--primary)); }
+    .contact-info div { display: flex; align-items: center; gap: .75rem; }
+    .contact-info div + div { margin-top: .75rem; }
+
+    /* Form */
+    .form-grid { display: grid; gap: 1rem; }
+    @media (min-width: 640px) { .form-grid-2 { grid-template-columns: 1fr 1fr; } }
+    .form-label { display: block; }
+    .form-label-text { display: block; margin-bottom: .5rem; font-size: .75rem; font-weight: 700; color: hsl(var(--primary)); }
+    .form-input { width: 100%; padding: .75rem 1rem; font-size: .875rem; color: hsl(var(--primary)); }
+    .form-textarea { min-height: 6rem; resize: vertical; }
+    .form-submit {
+      display: inline-flex; width: 100%; align-items: center; justify-content: center;
+      gap: .75rem; background: hsl(var(--primary)); padding: .875rem 1.5rem;
+      font-size: .875rem; font-weight: 700; color: hsl(var(--primary-foreground));
+      border: none; cursor: pointer; font-family: var(--app-font-sans);
+    }
+    .form-note { text-align: center; font-size: 11px; line-height: 1.7; color: hsl(var(--muted-foreground)); margin-top: 1rem; }
+
+    .success-box {
+      display: flex; min-height: 320px; flex-direction: column; align-items: flex-start;
+      justify-content: center; border: 1px solid hsl(69 66% 53% / .5);
+      background: hsl(69 66% 53% / .15); padding: 2rem 2.5rem;
+    }
+    .success-icon {
+      margin-bottom: 1.5rem; display: flex; height: 3rem; width: 3rem;
+      align-items: center; justify-content: center; border-radius: 9999px;
+      background: hsl(var(--secondary)); color: hsl(var(--primary));
+    }
+
+    /* Footer */
+    .site-footer { background: hsl(var(--primary)); padding: 2rem 0; color: hsl(var(--background)); }
+    .footer-inner { display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 1.5rem; }
+    @media (min-width: 640px) { .footer-inner { flex-direction: row; align-items: center; } }
+    .footer-divider { height: 1.25rem; width: 1px; background: hsl(var(--background) / .25); }
+    @media (max-width: 639px) { .footer-divider { display: none; } }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 40;
+      display: flex; align-items: flex-end; justify-content: center;
+      background: hsl(215 57% 15% / .58); padding: 0;
+      backdrop-filter: blur(4px);
+    }
+    @media (min-width: 640px) { .modal-overlay { align-items: center; padding: 1.5rem; } }
+    .modal-content {
+      position: relative; max-height: 94dvh; width: 100%; max-width: 36rem;
+      overflow-y: auto; background: hsl(var(--background)); padding: 1.5rem;
+      box-shadow: 0 25px 50px -12px rgb(0 0 0 / .25);
+    }
+    @media (min-width: 640px) { .modal-content { padding: 2.5rem; } }
+    .modal-close {
+      position: absolute; right: 1.25rem; top: 1.25rem; border-radius: 9999px;
+      padding: .5rem; color: hsl(var(--muted-foreground)); background: none;
+      border: none; cursor: pointer; transition: background .2s, color .2s;
+    }
+    .modal-close:hover { background: hsl(var(--muted)); color: hsl(var(--primary)); }
+
+    /* Section titles */
+    .section-title {
+      font-family: var(--app-font-serif);
+      font-size: 2.25rem; font-weight: 600; line-height: .98; letter-spacing: -.06em;
+      color: hsl(var(--primary));
+    }
+    @media (min-width: 640px) { .section-title { font-size: 3.75rem; } }
+    .section-title--light { color: hsl(var(--background)); }
+    .text-muted-fg { color: hsl(var(--muted-foreground)); }
+    .text-accent { color: hsl(var(--accent)); }
+    .text-secondary { color: hsl(var(--secondary)); }
+  </style>
+</head>
+<body class="pv-noise">
+
+  <!-- HEADER -->
+  <header class="site-header">
+    <div class="pv-shell header-inner">
+      <a href="#top" onclick="smoothScroll('top');return false;" style="text-decoration:none;display:flex;align-items:center;gap:.75rem;" aria-label="PetViza home">
+        <span class="logo-icon logo-icon--light" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11.35 7.19c0-1.15.87-2.19 2.15-2.19 1.28 0 2.15 1.04 2.15 2.19"/><path d="M8.35 7.19c0-1.15.87-2.19 2.15-2.19"/><path d="M15.65 7.19c0-1.15-.87-2.19-2.15-2.19"/><circle cx="7" cy="10" r="1.5"/><circle cx="17" cy="10" r="1.5"/><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><path d="M7 16.5c0 2.5 2.2 4.5 5 4.5s5-2 5-4.5c0-1.5-.5-2.5-1.5-3.5-1-.8-2.2-1-3.5-1s-2.5.2-3.5 1c-1 1-1.5 2-1.5 3.5z"/></svg>
+          <span class="logo-dot"></span>
+        </span>
+        <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1;">
+          <span class="logo-name" style="color:hsl(var(--primary))">PetViza</span>
+          <span class="logo-sub" style="color:hsl(var(--primary)/.62)">Pet travel certificates</span>
+        </span>
+      </a>
+      <nav class="nav-desktop items-center gap-8">
+        <button class="nav-link" onclick="smoothScroll('process')">How it works</button>
+        <button class="nav-link" onclick="smoothScroll('expertise')">Our expertise</button>
+        <button class="nav-link" onclick="smoothScroll('faq')">FAQ</button>
+        <button class="btn-primary pv-button" onclick="openModal()">Begin your journey <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+      </nav>
+      <button class="mobile-toggle" onclick="toggleMobile()" aria-label="Toggle menu" id="mobileBtn">
+        <svg id="menuIcon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" x2="20" y1="12" y2="12"/><line x1="4" x2="20" y1="6" y2="6"/><line x1="4" x2="20" y1="18" y2="18"/></svg>
+        <svg id="closeIcon" width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="mobile-menu" id="mobileMenu" style="display:none">
+      <nav style="display:flex;flex-direction:column;gap:.25rem;">
+        <button class="mobile-nav-link" onclick="smoothScroll('process');closeMobile()">How it works <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        <button class="mobile-nav-link" onclick="smoothScroll('expertise');closeMobile()">Our expertise <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        <button class="mobile-nav-link" onclick="smoothScroll('faq');closeMobile()">FAQ <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        <button class="mobile-cta" onclick="closeMobile();openModal()">Begin your journey <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-circle-1"></div>
+      <div class="hero-circle-2"></div>
+      <div class="pv-shell hero-grid">
+        <div style="max-width:42rem">
+          <div class="pv-reveal pv-eyebrow" style="margin-bottom:1.75rem;display:flex;align-items:center;gap:.75rem;color:hsl(var(--primary)/.66)">
+            <span style="height:1px;width:2rem;background:hsl(var(--primary))"></span> International travel, made human
+          </div>
+          <h1 class="pv-reveal pv-delay-1 hero-title">Go farther.<br><span>Worry less.</span></h1>
+          <p class="pv-reveal pv-delay-2 hero-subtitle">The paperwork behind your pet's big adventure, handled with 26 years of combined expertise and a genuinely personal touch.</p>
+          <div class="pv-reveal pv-delay-3 hero-actions">
+            <button class="hero-cta pv-button" onclick="openModal()">Get your travel plan <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+            <button class="hero-link" onclick="smoothScroll('process')">See how it works <span aria-hidden="true">&#x2198;</span></button>
+          </div>
+          <div class="pv-reveal pv-delay-4 hero-trust">
+            <div style="display:flex">
+              <div class="avatar">M</div><div class="avatar">A</div><div class="avatar">J</div>
+            </div>
+            <p style="font-size:.75rem;font-weight:500;line-height:1.6;color:hsl(var(--primary)/.62)">Trusted by pet parents<br><strong style="color:hsl(var(--primary))">across 18 countries</strong></p>
+          </div>
+        </div>
+        <div class="hero-visual">
+          <div class="pv-drift hero-card-main">
+            <div class="hero-card-main-inner">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;color:hsl(var(--secondary))">
+                <span class="pv-eyebrow">Case file / 026</span>
+                <svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+              </div>
+              <div style="margin-top:7rem">
+                <p class="pv-display" style="font-size:2.25rem;font-weight:500;line-height:.95;letter-spacing:-.055em;color:hsl(var(--secondary))">A clear<br>path to<br><em style="color:hsl(var(--accent))">anywhere.</em></p>
+              </div>
+              <div style="position:absolute;bottom:2.5rem;left:2.5rem;right:2.5rem;display:flex;align-items:flex-end;justify-content:space-between;border-top:1px solid hsl(var(--secondary)/.25);padding-top:1rem;color:hsl(var(--secondary)/.65)">
+                <span class="pv-eyebrow">Pet travel concierge</span>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>
+              </div>
+            </div>
+          </div>
+          <div class="hero-card-small">
+            <div style="margin-bottom:1.25rem;display:flex;align-items:center;justify-content:space-between">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m9 15 2 2 4-4"/></svg>
+              <span class="pv-eyebrow" style="color:hsl(var(--muted-foreground))">Ready to fly</span>
+            </div>
+            <div style="margin-bottom:.5rem;height:.5rem;width:80%;background:hsl(var(--primary))"></div>
+            <div style="margin-bottom:1.5rem;height:.5rem;width:60%;background:hsl(var(--primary)/.13)"></div>
+            <p style="font-size:.75rem;font-weight:700;color:hsl(var(--primary))">Certificate packet reviewed</p>
+            <p style="margin-top:.25rem;font-size:11px;color:hsl(var(--muted-foreground))">Everything in its right place.</p>
+          </div>
+        </div>
+      </div>
+      <div class="hero-bar">
+        <div class="pv-shell hero-bar-inner">
+          <span>Medical clarity</span><span class="hero-bar-line"></span>
+          <span>Government-ready</span><span class="hero-bar-line"></span>
+          <span>Calm, start to finish</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- PROCESS -->
+    <section id="process" class="section-process">
+      <div class="pv-shell">
+        <div class="process-grid">
+          <div data-reveal class="reveal">
+            <p class="pv-eyebrow text-accent" style="margin-bottom:1.25rem">The PetViza way</p>
+            <h2 class="section-title">Less chasing.<br><span class="text-muted-fg">More arriving.</span></h2>
+            <p style="margin-top:1.75rem;max-width:24rem;font-size:1rem;line-height:1.75;color:hsl(var(--muted-foreground))">International pet travel has enough moving parts. We turn them into one steady line from your first question to your final certificate.</p>
+          </div>
+          <div class="process-cards">
+            <article data-reveal class="reveal pv-delay-1 process-card">
+              <div class="process-card-header">
+                <span class="pv-eyebrow text-accent">01</span>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--primary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"/></svg>
+              </div>
+              <h3 class="pv-display" style="font-size:1.5rem;font-weight:600;letter-spacing:-.04em;color:hsl(var(--primary))">Map the route</h3>
+              <p style="margin-top:.75rem;font-size:.875rem;line-height:1.7;color:hsl(var(--muted-foreground))">We translate your destination's rules into a simple, personal checklist — including the dates that matter.</p>
+            </article>
+            <article data-reveal class="reveal pv-delay-2 process-card">
+              <div class="process-card-header">
+                <span class="pv-eyebrow text-accent">02</span>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--primary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"/><path d="M12 5 9.04 7.96a2.17 2.17 0 0 0 0 3.08c.82.82 2.13.85 3 .07l2.07-1.9a2.82 2.82 0 0 1 3.79 0l2.96 2.66"/><path d="m18 15-2-2"/><path d="m15 18-2-2"/></svg>
+              </div>
+              <h3 class="pv-display" style="font-size:1.5rem;font-weight:600;letter-spacing:-.04em;color:hsl(var(--primary))">Move together</h3>
+              <p style="margin-top:.75rem;font-size:.875rem;line-height:1.7;color:hsl(var(--muted-foreground))">We coordinate the vet work and government steps, keeping everyone aligned and your questions answered.</p>
+            </article>
+            <article data-reveal class="reveal pv-delay-3 process-card">
+              <div class="process-card-header">
+                <span class="pv-eyebrow text-accent">03</span>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--primary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+              </div>
+              <h3 class="pv-display" style="font-size:1.5rem;font-weight:600;letter-spacing:-.04em;color:hsl(var(--primary))">Travel assured</h3>
+              <p style="margin-top:.75rem;font-size:.875rem;line-height:1.7;color:hsl(var(--muted-foreground))">We review the final packet with a detail-obsessed eye, so you can focus on the goodbye and the hello.</p>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- EXPERTISE -->
+    <section id="expertise" class="section-expertise pv-grid">
+      <div class="pv-shell expertise-grid">
+        <div data-reveal class="reveal" style="position:relative">
+          <div class="expertise-deco"></div>
+          <p class="pv-eyebrow text-secondary" style="margin-bottom:1.25rem">Why people call us</p>
+          <h2 class="section-title section-title--light" style="max-width:36rem">The details are our comfort zone.</h2>
+          <p style="margin-top:1.75rem;max-width:32rem;font-size:1rem;line-height:1.75;color:hsl(var(--background)/.65)">PetViza was built by people who know that a certificate is never just a certificate. It is a move, a reunion, a fresh start — and your pet's place beside you.</p>
+          <div style="margin-top:2.5rem;display:flex;align-items:center;gap:1rem"><div style="height:1px;width:3.5rem;background:hsl(var(--accent))"></div><span style="font-size:.875rem;font-weight:700;color:hsl(var(--background)/.8)">26 years, combined</span></div>
+        </div>
+        <div class="expertise-cards" data-reveal>
+          <div class="expertise-card">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--secondary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2.5rem"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <h3 class="pv-display" style="font-size:1.25rem;font-weight:600">Deadline fluency</h3>
+            <p style="margin-top:.5rem;font-size:.875rem;line-height:1.7;color:hsl(var(--background)/.6)">We see the calendar before it becomes a crisis.</p>
+          </div>
+          <div class="expertise-card">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--secondary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2.5rem"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="m9 15 2 2 4-4"/></svg>
+            <h3 class="pv-display" style="font-size:1.25rem;font-weight:600">Document precision</h3>
+            <p style="margin-top:.5rem;font-size:.875rem;line-height:1.7;color:hsl(var(--background)/.6)">Every date, stamp, and signature gets a second look.</p>
+          </div>
+          <div class="expertise-card">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--secondary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2.5rem"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+            <h3 class="pv-display" style="font-size:1.25rem;font-weight:600">Plain-English updates</h3>
+            <p style="margin-top:.5rem;font-size:.875rem;line-height:1.7;color:hsl(var(--background)/.6)">No jargon, no disappearing acts, no mystery status.</p>
+          </div>
+          <div class="expertise-card">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--secondary))" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="margin-bottom:2.5rem"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg>
+            <h3 class="pv-display" style="font-size:1.25rem;font-weight:600">A steady advocate</h3>
+            <p style="margin-top:.5rem;font-size:.875rem;line-height:1.7;color:hsl(var(--background)/.6)">When requirements shift, you have someone in your corner.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TESTIMONIAL -->
+    <section class="section-testimonial">
+      <div class="pv-shell">
+        <div data-reveal class="reveal" style="max-width:56rem;margin:0 auto;text-align:center">
+          <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="hsl(var(--accent))" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" style="margin:0 auto 1.75rem"><path d="M3 21c3 0 7-1 7-8V5c0-1.25-.756-2.017-2-2H4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2 1 0 1 0 1 1v1c0 1-1 2-2 2s-1 .008-1 1.031V20c0 1 0 1 1 1z"/><path d="M15 21c3 0 7-1 7-8V5c0-1.25-.757-2.017-2-2h-4c-1.25 0-2 .75-2 1.972V11c0 1.25.75 2 2 2h.75c0 2.25.25 4-2.75 4v3c0 1 0 1 1 1z"/></svg>
+          <blockquote class="testimonial-quote">&ldquo;For the first time, the process felt like someone was carrying it with us — not something we had to survive alone.&rdquo;</blockquote>
+          <div style="margin-top:2rem;display:flex;align-items:center;justify-content:center;gap:.75rem;font-size:.75rem;font-weight:700;color:hsl(var(--muted-foreground))">
+            <span style="height:.5rem;width:.5rem;border-radius:9999px;background:hsl(var(--accent))"></span> Rachel &amp; Miso &middot; relocating to Lisbon
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section id="faq" class="section-faq">
+      <div class="pv-shell faq-grid">
+        <div data-reveal class="reveal">
+          <p class="pv-eyebrow text-accent" style="margin-bottom:1.25rem">Good to know</p>
+          <h2 class="section-title">Questions,<br>met clearly.</h2>
+          <p style="margin-top:1.5rem;max-width:20rem;font-size:.875rem;line-height:1.7;color:hsl(var(--muted-foreground))">Still wondering about your route? That is exactly what the first conversation is for.</p>
+        </div>
+        <div class="faq-list" data-reveal id="faqList">
+          <div class="faq-item">
+            <button class="faq-button" onclick="toggleFaq(0)" aria-expanded="true"><span>How far in advance should I start?</span><svg class="faq-chevron open" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="faq-answer" id="faq-0">Six to eight weeks is a comfortable starting point for most destinations. If your departure is sooner, do not panic — our first step is a fast, honest review of your timeline and what can still be achieved.</div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-button" onclick="toggleFaq(1)" aria-expanded="false"><span>What does PetViza actually handle?</span><svg class="faq-chevron" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="faq-answer" id="faq-1" style="display:none">We map your destination requirements, coordinate with your veterinarian, prepare and review the certificate packet, and guide you through endorsement or submission steps. You always know what is done, what is next, and who owns it.</div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-button" onclick="toggleFaq(2)" aria-expanded="false"><span>Can you help if I already started the process?</span><svg class="faq-chevron" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="faq-answer" id="faq-2" style="display:none">Absolutely. A second set of expert eyes can prevent an expensive reset. Send us what you have and we will identify gaps, conflicting dates, and the quickest clean path forward.</div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-button" onclick="toggleFaq(3)" aria-expanded="false"><span>Do you work with any veterinarian?</span><svg class="faq-chevron" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="faq-answer" id="faq-3" style="display:none">Yes. We work alongside your trusted veterinarian and make their part of the process clear and efficient. We can also help you understand what kind of accredited veterinarian your destination requires.</div>
+          </div>
+          <div class="faq-item">
+            <button class="faq-button" onclick="toggleFaq(4)" aria-expanded="false"><span>Will you book my pet's flight?</span><svg class="faq-chevron" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></button>
+            <div class="faq-answer" id="faq-4" style="display:none">PetViza is focused on the medical and government certificate process. We can advise on timing and documentation as it relates to your itinerary, while your airline booking remains with you or your travel agent.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CONTACT -->
+    <section id="contact" class="section-contact">
+      <div class="pv-shell contact-grid">
+        <div data-reveal class="reveal">
+          <p class="pv-eyebrow text-accent" style="margin-bottom:1.25rem">Your next chapter</p>
+          <h2 class="section-title" style="max-width:28rem">Let's get your paws on the ground.</h2>
+          <p style="margin-top:1.75rem;max-width:24rem;font-size:1rem;line-height:1.75;color:hsl(var(--primary)/.68)">Tell us a little about where you are headed. We will tell you what it takes to get there — kindly, clearly, and without the runaround.</p>
+          <div class="contact-info" style="margin-top:2.5rem">
+            <div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg> hello@petviza.com</div>
+            <div><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg> Serving pet parents worldwide</div>
+          </div>
+        </div>
+        <div class="pv-card" style="padding:1.25rem" data-reveal>
+          <div style="padding:1rem" id="mainForm">
+            <form onsubmit="submitForm(event,'mainForm')" class="space-y-4">
+              <div class="form-grid form-grid-2">
+                <label class="form-label"><span class="form-label-text">Your name</span><input required class="pv-input form-input" placeholder="First and last name"></label>
+                <label class="form-label"><span class="form-label-text">Email address</span><input required type="email" class="pv-input form-input" placeholder="you@example.com"></label>
+              </div>
+              <div class="form-grid form-grid-2">
+                <label class="form-label"><span class="form-label-text">Where are you going?</span><input required class="pv-input form-input" placeholder="Country or territory"></label>
+                <label class="form-label"><span class="form-label-text">Departure date</span><input required type="date" class="pv-input form-input"></label>
+              </div>
+              <label class="form-label"><span class="form-label-text">Tell us about your pet</span><input required class="pv-input form-input" placeholder="Name, species, age, and anything we should know"></label>
+              <label class="form-label"><span class="form-label-text">Anything else on your mind?</span><textarea class="pv-input form-input form-textarea" placeholder="Questions, a deadline, or a tricky detail..."></textarea></label>
+              <button type="submit" class="form-submit pv-button">Start with a calm plan <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+              <p class="form-note">No pressure, no commitment. Just a clear first look at your journey.</p>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="site-footer">
+    <div class="pv-shell footer-inner">
+      <div style="display:flex;align-items:center;gap:1rem">
+        <a href="#top" onclick="smoothScroll('top');return false;" style="text-decoration:none;display:flex;align-items:center;gap:.75rem;">
+          <span class="logo-icon logo-icon--dark" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="7" cy="10" r="1.5"/><circle cx="17" cy="10" r="1.5"/><circle cx="9" cy="6" r="1.5"/><circle cx="15" cy="6" r="1.5"/><path d="M7 16.5c0 2.5 2.2 4.5 5 4.5s5-2 5-4.5c0-1.5-.5-2.5-1.5-3.5-1-.8-2.2-1-3.5-1s-2.5.2-3.5 1c-1 1-1.5 2-1.5 3.5z"/></svg>
+            <span class="logo-dot"></span>
+          </span>
+          <span style="display:flex;flex-direction:column;align-items:flex-start;line-height:1;">
+            <span class="logo-name" style="color:hsl(var(--background))">PetViza</span>
+            <span class="logo-sub" style="color:hsl(var(--background)/.58)">Pet travel certificates</span>
+          </span>
+        </a>
+        <span class="footer-divider"></span>
+        <span style="font-size:.75rem;color:hsl(var(--background)/.58)">International pet travel certificates</span>
+      </div>
+      <p style="font-size:.75rem;color:hsl(var(--background)/.5)">A little less paperwork. A lot more peace of mind.</p>
+    </div>
+  </footer>
+
+  <!-- MODAL -->
+  <div class="modal-overlay" id="consultModal" style="display:none" role="dialog" aria-modal="true">
+    <div class="modal-content">
+      <button class="modal-close" onclick="closeModal()" aria-label="Close consultation form">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+      <p class="pv-eyebrow text-accent" style="margin-bottom:.75rem">Private consultation</p>
+      <h2 class="pv-display" style="max-width:24rem;font-size:1.875rem;font-weight:600;letter-spacing:-.045em;color:hsl(var(--primary))">Let's make the next step simple.</h2>
+      <p style="margin-bottom:1.75rem;margin-top:.75rem;max-width:28rem;font-size:.875rem;line-height:1.7;color:hsl(var(--muted-foreground))">Share the essentials below. We will come back with the right route, the real timing, and no guesswork.</p>
+      <div id="modalForm">
+        <form onsubmit="submitForm(event,'modalForm')" class="space-y-4">
+          <div class="form-grid form-grid-2">
+            <label class="form-label"><span class="form-label-text">Your name</span><input required class="pv-input form-input" placeholder="First and last name"></label>
+            <label class="form-label"><span class="form-label-text">Email address</span><input required type="email" class="pv-input form-input" placeholder="you@example.com"></label>
+          </div>
+          <div class="form-grid form-grid-2">
+            <label class="form-label"><span class="form-label-text">Where are you going?</span><input required class="pv-input form-input" placeholder="Country or territory"></label>
+            <label class="form-label"><span class="form-label-text">Departure date</span><input required type="date" class="pv-input form-input"></label>
+          </div>
+          <label class="form-label"><span class="form-label-text">Tell us about your pet</span><input required class="pv-input form-input" placeholder="Name, species, age, and anything we should know"></label>
+          <button type="submit" class="form-submit pv-button">Start with a calm plan <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+          <p class="form-note">No pressure, no commitment. Just a clear first look at your journey.</p>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function smoothScroll(id) {
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+
+    function toggleMobile() {
+      var menu = document.getElementById('mobileMenu');
+      var menuIcon = document.getElementById('menuIcon');
+      var closeIcon = document.getElementById('closeIcon');
+      var open = menu.style.display === 'none';
+      menu.style.display = open ? 'block' : 'none';
+      menuIcon.style.display = open ? 'none' : 'block';
+      closeIcon.style.display = open ? 'block' : 'none';
+      document.body.style.overflow = open ? 'hidden' : '';
+    }
+
+    function closeMobile() {
+      document.getElementById('mobileMenu').style.display = 'none';
+      document.getElementById('menuIcon').style.display = 'block';
+      document.getElementById('closeIcon').style.display = 'none';
+      document.body.style.overflow = '';
+    }
+
+    function openModal() {
+      document.getElementById('consultModal').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal() {
+      document.getElementById('consultModal').style.display = 'none';
+      document.body.style.overflow = '';
+    }
+
+    var activeFaq = 0;
+    function toggleFaq(index) {
+      for (var i = 0; i < 5; i++) {
+        var el = document.getElementById('faq-' + i);
+        var btns = document.querySelectorAll('.faq-button');
+        if (i === index && activeFaq !== index) {
+          el.style.display = 'block';
+          btns[i].setAttribute('aria-expanded', 'true');
+          btns[i].querySelector('.faq-chevron').classList.add('open');
+        } else {
+          el.style.display = 'none';
+          btns[i].setAttribute('aria-expanded', 'false');
+          btns[i].querySelector('.faq-chevron').classList.remove('open');
+        }
+      }
+      activeFaq = activeFaq === index ? -1 : index;
+    }
+
+    function submitForm(e, containerId) {
+      e.preventDefault();
+      var container = document.getElementById(containerId);
+      container.innerHTML = '<div class="success-box">' +
+        '<div class="success-icon"><svg width="25" height="25" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m9 11 3 3L22 4"/></svg></div>' +
+        '<p class="pv-eyebrow" style="margin-bottom:.75rem;color:hsl(var(--primary))">Message received</p>' +
+        '<h3 class="pv-display" style="max-width:28rem;font-size:1.875rem;font-weight:600;letter-spacing:-.04em;color:hsl(var(--primary))">You have already made the hardest move.</h3>' +
+        '<p style="margin-top:.75rem;max-width:28rem;font-size:.875rem;line-height:1.7;color:hsl(var(--primary)/.72)">A PetViza concierge will review your route and reply within one business day with a clear next step.</p>' +
+        '</div>';
+      if (containerId === 'modalForm') {
+        setTimeout(closeModal, 2000);
+      }
+    }
+
+    // Intersection observer for reveal animations
+    document.addEventListener('DOMContentLoaded', function() {
+      var elements = document.querySelectorAll('[data-reveal]');
+      var observer = new IntersectionObserver(function(entries) {
+        entries.forEach(function(entry) {
+          if (entry.isIntersecting) entry.target.classList.add('is-visible');
+        });
+      }, { threshold: 0.12 });
+      elements.forEach(function(el) { observer.observe(el); });
+    });
+
+    // Close modal on overlay click
+    document.getElementById('consultModal').addEventListener('click', function(e) {
+      if (e.target === this) closeModal();
+    });
+  </script>
+</body>
+</html>
