@@ -15,8 +15,8 @@
  */
 import { prisma } from '../lib/prisma';
 import { CampaignStatus, EmailStatus, LeadStatus } from '../lib/generated/prisma';
-import { processSendJob } from '../workers/email-worker';
-import { handleInboundMessage } from '../workers/reply-worker';
+import { processSendJob } from '../lib/dispatch';
+import { handleInboundMessage } from '../lib/inbound';
 import { scheduleCampaignLeads, findDueLeads } from '../lib/sequence';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import type { MailSender, OutboundMessage } from '../lib/mailer';

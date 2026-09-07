@@ -121,10 +121,48 @@ with the root directory set to `apps/sep`. Every push to a branch produces a
 preview deployment; pushes to `master` produce production once this app is
 merged there.
 
-Vercel hosts the web surface only: the dashboard, `/api/leads/import`, and the
-tracking pixel at `/api/track/open`. The BullMQ workers are long-lived
-processes and cannot run on Vercel, so `npm run workers` belongs on a host you
-control (Railway, Fly, a VPS) pointed at the same Postgres and a Redis.
+Vercel hosts the dashboard, `/api/leads/import`, the tracking pixel at
+`/api/track/open`, and the two scheduled routes that drive sending.
+
+### Two ways to run the sending loop
+
+The send path lives in `lib/dispatch.ts` and reply detection in `lib/inbound.ts`.
+Both runtimes call the same code, so the execution guard, the per-mailbox daily
+cap and the tracking pixel behave identically either way.
+
+**Serverless (no extra host).** `/api/cron/dispatch` finds due leads and sends
+them inline; `/api/cron/poll-replies` polls each mailbox over IMAP. Redis is not
+involved. Schedules live in `vercel.json`.
+
+**Long-lived workers (higher throughput).** `npm run workers` runs the BullMQ
+scheduler, sender and reply poller against Redis on a host you control. Use this
+when you outgrow the serverless cadence. Do not run both against one database at
+the same cadence; pick one.
+
+### Securing and scheduling the cron routes
+
+Both routes require `Authorization: Bearer $CRON_SECRET` and refuse to run when
+`CRON_SECRET` is unset, so they are never an open send trigger. Vercel Cron
+sends that header automatically once the variable exists on the project.
+
+Vercel's Hobby plan allows at most two cron jobs and only daily schedules, which
+is why `vercel.json` ships with daily times. Sending on a realistic cadence needs
+one of:
+
+- **Vercel Pro** — change the schedules to `*/5 * * * *` (dispatch) and
+  `*/2 * * * *` (replies).
+- **Any external scheduler** — cron-job.org, GitHub Actions, Upstash, or a box
+  you own, hitting the same URLs with the same bearer header:
+
+  ```bash
+  curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/dispatch
+  curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/poll-replies
+  ```
+
+Each dispatch run handles up to 40 leads by default (`?batch=` up to 200) and
+stops at 45 seconds, reporting `truncated: true` when work remains so the next
+run continues. Nothing is lost or double-sent: due leads are re-read each run and
+a lead cannot receive the same step twice.
 
 ### Environment variables to set on the project
 
@@ -132,7 +170,8 @@ control (Railway, Fly, a VPS) pointed at the same Postgres and a Redis.
 | --- | --- | --- |
 | `DATABASE_URL` | yes | Postgres connection string, including `?schema=sep`. Without it every page renders its error state; the build still succeeds. |
 | `APP_URL` | yes | The deployment's own origin. It is baked into tracking pixel URLs, so it must be reachable by recipients. |
-| `REDIS_URL` | workers only | Not read by any page or route. Set it wherever the workers run. |
+| `REDIS_URL` | workers only | Not read by any page or cron route. Set it wherever the BullMQ workers run. |
+| `CRON_SECRET` | to send | Shared secret for `/api/cron/*`. Generate with `openssl rand -hex 32`. Without it the scheduled routes return 503. |
 
 ### Sharing a database with OUTBOX
 

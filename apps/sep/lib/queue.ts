@@ -5,17 +5,13 @@ import { env } from './env';
 export const EMAIL_QUEUE_NAME = 'sep-email-send';
 export const REPLY_QUEUE_NAME = 'sep-reply-poll';
 
-/** Payload for one scheduled sequence step against one lead. */
-export type SendJobData = {
-  leadId: string;
-  campaignId: string;
-  stepOrder: number;
-};
+// The payload type lives with the send path so importing it does not drag
+// BullMQ and Redis into the serverless bundle.
+export type { SendJobData } from './dispatch';
+import type { SendJobData } from './dispatch';
 
-export type ReplyJobData = {
-  /** Restrict polling to one mailbox; omitted means poll every active account. */
-  sendingAccountId?: string;
-};
+export type { ReplyJobData } from './inbound';
+import type { ReplyJobData } from './inbound';
 
 const globalForQueue = globalThis as unknown as {
   sepRedis?: IORedis;
