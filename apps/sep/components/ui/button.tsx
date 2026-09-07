@@ -8,10 +8,12 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: 'bg-accent text-accent-ink hover:bg-accent-strong',
+        // Matches the OUTBOX primary action gradient.
+        default:
+          'bg-[linear-gradient(135deg,#8d43e7,#a845f8)] text-white shadow-[0_10px_27px_#8737d742] hover:brightness-110',
         outline:
           'border border-hairline-strong bg-panel text-ink hover:bg-panel-raised hover:border-hairline-strong',
-        ghost: 'text-ink-muted hover:bg-panel-raised hover:text-ink',
+        ghost: 'text-ink-muted hover:bg-accent-soft hover:text-ink',
         danger: 'border border-danger/40 bg-danger/10 text-danger hover:bg-danger/20',
         subtle: 'bg-panel-raised text-ink hover:bg-hairline',
       },
