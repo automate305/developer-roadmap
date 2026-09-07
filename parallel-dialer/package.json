@@ -1,0 +1,52 @@
+{
+  "name": "parallel-dialer",
+  "version": "1.0.0",
+  "private": false,
+  "license": "MIT",
+  "description": "Ultra-fast parallel dialer: Twilio Media Streams + Deepgram Nova-2 answer detection + WebRTC agent workstation + HubSpot CRM logging.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.11.0"
+  },
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "dev:web": "vite",
+    "build:web": "vite build",
+    "preview:web": "vite preview",
+    "dev:all": "concurrently -n api,web -c blue,magenta \"npm:dev\" \"npm:dev:web\"",
+    "lint": "eslint src",
+    "test": "node --test test/*.test.js"
+  },
+  "keywords": [
+    "parallel-dialer",
+    "power-dialer",
+    "twilio",
+    "media-streams",
+    "deepgram",
+    "answering-machine-detection",
+    "webrtc",
+    "hubspot"
+  ],
+  "dependencies": {
+    "@deepgram/sdk": "^3.9.0",
+    "@hubspot/api-client": "^12.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "twilio": "^5.4.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@twilio/voice-sdk": "^2.12.3",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "eslint": "^9.18.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.7"
+  }
+}
