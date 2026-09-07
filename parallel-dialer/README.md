@@ -170,6 +170,18 @@ The `x-dialer-key` shared secret on the control plane is a stopgap for local
 development. Put a real identity provider in front of `/api` before you expose
 this to the internet.
 
+## Theme
+
+The workstation uses the OUTBOX palette (`outbox.automate305.com`), so the dialer
+reads as part of the same product. The eleven brand values are lifted verbatim,
+along with the signature treatments: gradient glass panels, the purple gradient
+primary button, and the light frosted fields on a dark shell.
+
+Every colour in `src/frontend/styles.css` resolves to a token in the `:root`
+block, so re-skinning means replacing that block and nothing else. Purple is the
+primary action, which is why the in-call state uses OUTBOX's blue rather than its
+purple: the two need to stay apart at a glance.
+
 ## Tests
 
 ```bash

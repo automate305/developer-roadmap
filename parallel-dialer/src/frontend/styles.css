@@ -1,136 +1,328 @@
+/**
+ * Agent workstation theme.
+ *
+ * The palette is lifted verbatim from OUTBOX (outbox.automate305.com), the
+ * Automate305 outbound command center, so the dialer reads as the same product.
+ * The first group uses OUTBOX's own variable names; everything after it is a
+ * semantic alias or a state shade taken from OUTBOX at its exact value.
+ *
+ * Every colour in this file resolves to a token below. Re-skinning is a matter
+ * of replacing this block and nothing else.
+ */
+
 :root {
   color-scheme: dark;
 
-  /* ── Brand palette ─────────────────────────────────────────────────────────
-     Every colour in this stylesheet resolves to one of these eleven values.
-     To re-skin the workstation, replace this block and nothing else. */
-  --bg: #0d1117;          /* page ground */
-  --panel: #161b22;       /* card surface */
-  --panel-alt: #1c2230;   /* raised surface: buttons, meter tracks */
-  --border: #2a3140;      /* hairlines */
-  --text: #e6edf3;        /* primary text */
-  --muted: #8b949e;       /* secondary text, labels */
-  --accent: #2f81f7;      /* primary action */
-  --good: #3fb950;        /* ready, connected, mic level */
-  --warn: #d29922;        /* ringing, muted mic */
-  --bad: #f85149;         /* errors, end call */
-  --live: #a371f7;        /* in-call state */
+  /* ── OUTBOX brand palette (verbatim) ───────────────────────────────────── */
+  --bg: #08070d;
+  --panel: #121019;
+  --panel-2: #17131f;
+  --text: #f7f4fb;
+  --muted: #958d9e;
+  --line: #ffffff17;
+  --purple: #9b5cf6;
+  --purple-soft: #9b5cf624;
+  --green: #51d99a;
+  --amber: #f4bd5f;
+  --red: #ff7e70;
+  --blue: #65a9ff;
 
-  /* ── Contrast pairs ────────────────────────────────────────────────────────
-     Text drawn on top of a filled brand colour. Flip these to a dark value if
-     the palette above uses light accents. */
-  --on-accent: #ffffff;
-  --on-bad: #ffffff;
-  --on-warn: color-mix(in srgb, var(--warn) 18%, #000000);
+  /* ── Semantic aliases for dialer states ────────────────────────────────── */
+  --accent: var(--purple);   /* primary action */
+  --good: var(--green);      /* READY, connected, healthy */
+  --warn: var(--amber);      /* CONNECTING, RINGING, muted mic */
+  --bad: var(--red);         /* errors, end call */
+  --live: var(--blue);       /* IN_CALL — blue so it stays distinct from the
+                                purple primary action */
 
-  /* ── Derived tints ─────────────────────────────────────────────────────────
-     Mixed from the palette, so a re-skin carries through automatically. */
-  --bad-tint: color-mix(in srgb, var(--bad) 12%, transparent);
-  --bad-text: color-mix(in srgb, var(--bad) 55%, var(--text));
-  --row-stripe: color-mix(in srgb, var(--text) 3%, transparent);
+  /* ── Surface treatments ────────────────────────────────────────────────── */
+  --panel-surface: linear-gradient(135deg, #46355c75, #16111f80);
+  --panel-border: #ebddff47;
+  --panel-shadow: 0 24px 60px #03020833, inset 0 1px #ffffff2b, inset 0 -1px #0b07134d;
+  --panel-sheen: linear-gradient(115deg, #ffffff1a, #0000 26% 72%, #be96ff0f);
+  --shell-glow: #692cb41a;
+  --grid-line: #ffffff04;
+  --row-line: #ffffff0d;
+  --chip-bg: #ffffff0a;
 
-  --radius: 10px;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  /* ── Primary action ────────────────────────────────────────────────────── */
+  --action-gradient: linear-gradient(135deg, #8d43e7, #a845f8);
+  --action-shadow: 0 10px 27px #8737d742;
+  --on-action: #fff;      /* text on the purple gradient */
+  --action-text: #cda8fa;
+  --action-bg: #9b5cf61a;
+  --action-line: #9b5cf64d;
+
+  /* ── Fields: deliberately light against the dark shell, an OUTBOX signature */
+  --field-surface: linear-gradient(135deg, #f3f1f7c7, #dad4e59e);
+  --field-border: #e0cff4b8;
+  --field-text: #20192a;
+  --field-placeholder: #2f273aa3;
+  --field-shadow: inset 0 1px #ffffff8c, 0 8px 20px #08051224;
+  --field-focus-line: #b87df4f2;
+  --field-focus-shadow: inset 0 1px #ffffffb3, 0 0 0 3px #aa63f22e, 0 10px 24px #0805122e;
+  --focus-ring: #b380ff99;
+
+  /* ── State shades ──────────────────────────────────────────────────────── */
+  --good-text: #77ddb0;
+  --good-bg: #51d99a0f;
+  --good-line: #51d99a24;
+  --good-glow: #51d99ab3;
+  --good-icon: #68d7a2;
+
+  --warn-text: #e6b966;
+  --warn-bg: #f4bd5f14;
+  --warn-line: #f4bd5f2e;
+  --warn-btn-bg: #f4bd5f1a;
+  --warn-btn-line: #f4bd5f59;
+  --warn-panel-line: #f4bd5f4d;
+
+  --live-text: #8dc2ff;
+  --live-bg: #65a9ff14;
+  --live-line: #65a9ff30;
+  --live-glow: #65a9ffb3;
+  --live-panel-line: #65a9ff4d;
+
+  --bad-text: #ffaaa0;
+  --bad-bg: #ff7e700f;
+  --bad-line: #ff7e7033;
+  --bad-btn-bg: #ff7e701a;
+  --bad-btn-line: #ff7e7059;
+  --alert-text: #ffb6ae;
+  --alert-bg: #70282021;
+  --alert-line: #ff7e7038;
+
+  /* ── Text shades ───────────────────────────────────────────────────────── */
+  --kicker: #786f83;      /* eyebrow / section label */
+  --label: #817688;       /* form labels */
+  --dt: #766d7e;          /* definition terms */
+  --meter-label: #7c7384;
+  --time: #716879;
+  --faint: #756c7d;
+  --log-text: #c3b9cb;
+  --log-muted: #8c8294;
+  --stat: #b4aabd;
+
+  /* ── Meters ────────────────────────────────────────────────────────────── */
+  --meter-track: #ffffff0f;
+  --meter-fill: linear-gradient(90deg, #7133c4, #a768f5);
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 * { box-sizing: border-box; }
 
 body {
   margin: 0;
-  background: var(--bg);
   color: var(--text);
-  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  /* Shell glow and grid overlay are OUTBOX's dashboard backdrop. */
+  background: radial-gradient(circle at 72% 0, var(--shell-glow), transparent 35rem), var(--bg);
+  min-height: 100vh;
 }
 
-.app { display: flex; justify-content: center; padding: 32px 16px 64px; }
-.dialer { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 16px; }
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background-image: linear-gradient(var(--grid-line) 1px, #0000 0), linear-gradient(90deg, var(--grid-line) 1px, #0000 0);
+  background-size: 58px 58px;
+  -webkit-mask-image: linear-gradient(#000, #0000 82%);
+  mask-image: linear-gradient(#000, #0000 82%);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.app { position: relative; z-index: 1; display: flex; justify-content: center; padding: 32px 16px 64px; }
+.dialer { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 17px; }
 .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* ── header ─────────────────────────────────────────────────────────────── */
 .dialer__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
-.dialer__title { margin: 0; font-size: 22px; letter-spacing: -0.01em; }
-.dialer__subtitle { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-
-.badge {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 12px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--panel);
-  font-family: var(--mono); font-size: 12px; letter-spacing: 0.06em;
+.dialer__title { margin: 0; font-size: clamp(28px, 2.4vw, 37px); font-weight: 640; letter-spacing: -1.5px; line-height: 1; }
+.dialer__subtitle {
+  margin: 7px 0 0;
+  color: var(--kicker);
+  font-size: 10px; font-weight: 850; letter-spacing: 1.5px; text-transform: uppercase;
 }
-.badge__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
-.badge--good .badge__dot { background: var(--good); }
+
+/* Modelled on the OUTBOX .live-indicator pill. */
+.badge {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 7px 10px; border-radius: 7px;
+  border: 1px solid var(--line); background: var(--chip-bg);
+  color: var(--muted);
+  font-size: 9px; font-weight: 850; letter-spacing: 1px;
+}
+.badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.badge--good { color: var(--good-text); background: var(--good-bg); border-color: var(--good-line); }
+.badge--good .badge__dot { background: var(--good); box-shadow: 0 0 8px var(--good-glow); }
+.badge--pending { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
 .badge--pending .badge__dot { background: var(--warn); animation: pulse 1.2s ease-in-out infinite; }
-.badge--live .badge__dot { background: var(--live); animation: pulse 1.2s ease-in-out infinite; }
+.badge--live { color: var(--live-text); background: var(--live-bg); border-color: var(--live-line); }
+.badge--live .badge__dot { background: var(--live); box-shadow: 0 0 8px var(--live-glow); animation: pulse 1.2s ease-in-out infinite; }
+.badge--bad { color: var(--bad-text); background: var(--bad-bg); border-color: var(--bad-line); }
 .badge--bad .badge__dot { background: var(--bad); }
 @keyframes pulse { 50% { opacity: 0.25; } }
 
 /* ── panels ─────────────────────────────────────────────────────────────── */
 .panel {
-  background: var(--panel); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 16px;
-  display: flex; flex-direction: column; gap: 12px;
+  position: relative;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-surface);
+  border-radius: var(--radius);
+  box-shadow: var(--panel-shadow);
+  -webkit-backdrop-filter: blur(26px) saturate(135%);
+  backdrop-filter: blur(26px) saturate(135%);
+  padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 13px;
+  overflow: hidden;
 }
-.panel--ringing { border-color: var(--warn); }
-.panel--live { border-color: var(--live); }
-.panel__title { margin: 0; font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+/* The diagonal sheen that gives OUTBOX cards their glass edge. */
+.panel::before {
+  content: "";
+  position: absolute; inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: var(--panel-sheen);
+}
+.panel > * { position: relative; z-index: 1; }
+
+.panel--ringing { border-color: var(--warn-panel-line); }
+.panel--live { border-color: var(--live-panel-line); }
+
+.panel__title {
+  margin: 0;
+  color: var(--kicker);
+  font-size: 10px; font-weight: 850; letter-spacing: 1.5px; text-transform: uppercase;
+}
 .panel__head { display: flex; align-items: center; justify-content: space-between; }
 
-.alert { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; }
-.alert--error { background: var(--bad-tint); border: 1px solid var(--bad); color: var(--bad-text); }
+.alert { border-radius: 10px; padding: 13px 15px; font-size: 13px; }
+.alert--error { color: var(--alert-text); background: var(--alert-bg); border: 1px solid var(--alert-line); }
 
 /* ── controls ───────────────────────────────────────────────────────────── */
-.row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
 
+/* Default button follows the OUTBOX .secondary-action treatment. */
 .btn {
   appearance: none; cursor: pointer;
-  padding: 8px 14px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--panel-alt); color: var(--text);
-  font-size: 14px; font-weight: 500;
+  min-height: 38px; padding: 0 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--action-line);
+  background: var(--action-bg);
+  color: var(--action-text);
+  font-family: inherit; font-size: 11px; font-weight: 750;
   transition: filter 120ms ease, opacity 120ms ease;
 }
-.btn:hover:not(:disabled) { filter: brightness(1.25); }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
-.btn--danger { background: var(--bad); border-color: var(--bad); color: var(--on-bad); }
-.btn--warn { background: var(--warn); border-color: var(--warn); color: var(--on-warn); }
-.btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
+.btn:hover:not(:disabled) { filter: brightness(1.22); }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; cursor: pointer; }
-.field { display: inline-flex; flex-direction: column; gap: 4px; color: var(--muted); font-size: 13px; }
-.field input {
-  width: 80px; padding: 7px 10px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+.btn--primary {
+  border: 0;
+  background: var(--action-gradient);
+  color: var(--on-action);
+  font-weight: 800;
+  box-shadow: var(--action-shadow);
+}
+.btn--danger { border-color: var(--bad-btn-line); background: var(--bad-btn-bg); color: var(--bad-text); }
+.btn--warn { border-color: var(--warn-btn-line); background: var(--warn-btn-bg); color: var(--warn-text); }
+.btn--ghost { border-color: transparent; background: none; color: var(--muted); font-weight: 650; }
+
+.toggle {
+  display: inline-flex; align-items: center; gap: 8px;
+  color: var(--muted); font-size: 12px; cursor: pointer;
+}
+.toggle input { width: 14px; height: 14px; accent-color: var(--purple); }
+
+.field {
+  display: inline-flex; flex-direction: column; gap: 7px;
+  color: var(--label);
+  font-size: 8px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
 }
 
+/* Light frosted fields on the dark shell — an OUTBOX signature. */
+.field input,
 .textarea {
-  width: 100%; resize: vertical; padding: 10px 12px; border-radius: 8px;
-  border: 1px solid var(--border); background: var(--bg); color: var(--text);
+  border: 1px solid var(--field-border);
+  background: var(--field-surface);
+  color: var(--field-text);
+  box-shadow: var(--field-shadow);
+  -webkit-backdrop-filter: blur(16px) saturate(125%);
+  backdrop-filter: blur(16px) saturate(125%);
+  border-radius: var(--radius-sm);
+  outline: 0;
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 400;
 }
-.textarea:disabled { opacity: 0.6; }
+.field input { width: 84px; min-height: 39px; padding: 9px 11px; font-size: 13px; }
+/* Sized to OUTBOX's .csv-paste-field: a light field this large reads as a slab. */
+.textarea { width: 100%; resize: vertical; min-height: 88px; max-height: 220px; padding: 11px 12px; font-size: 13px; line-height: 1.5; }
+.textarea::placeholder { color: var(--field-placeholder); }
+.field input:focus, .textarea:focus { border-color: var(--field-focus-line); box-shadow: var(--field-focus-shadow); }
+.textarea:disabled, .field input:disabled { opacity: 0.55; }
 
 /* ── facts ──────────────────────────────────────────────────────────────── */
-.facts { display: flex; gap: 24px; margin: 0; flex-wrap: wrap; }
-.facts dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
-.facts dd { margin: 2px 0 0; font-size: 16px; }
-.facts--wide { border-top: 1px solid var(--border); padding-top: 12px; }
+.facts { display: flex; gap: 26px; margin: 0; flex-wrap: wrap; }
+.facts dt { color: var(--dt); font-size: 7px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase; }
+.facts dd { margin: 5px 0 0; font-size: 19px; letter-spacing: -0.6px; }
+.facts--wide { border-top: 1px solid var(--line); padding-top: 13px; }
+.facts--wide dd { font-size: 15px; color: var(--stat); }
 
 /* ── meters ─────────────────────────────────────────────────────────────── */
 .meters { display: flex; flex-direction: column; gap: 8px; }
 .meter { display: flex; align-items: center; gap: 10px; }
-.meter__label { width: 42px; color: var(--muted); font-size: 12px; }
-.meter__track { flex: 1; height: 6px; border-radius: 999px; background: var(--panel-alt); overflow: hidden; }
-.meter__fill { height: 100%; background: var(--good); transition: width 80ms linear; }
+.meter__label { width: 42px; color: var(--meter-label); font-size: 8px; font-weight: 850; letter-spacing: 0.8px; text-transform: uppercase; }
+.meter__track { flex: 1; height: 5px; border-radius: 99px; background: var(--meter-track); overflow: hidden; }
+.meter__fill { height: 100%; border-radius: inherit; background: var(--meter-fill); transition: width 80ms linear; }
 .meter__fill--muted { background: var(--bad); }
 
 /* ── activity log ───────────────────────────────────────────────────────── */
-.log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
-.log__empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
-.log__row { display: flex; gap: 10px; padding: 5px 6px; border-radius: 6px; font-size: 13px; align-items: baseline; }
-.log__row:nth-child(odd) { background: var(--row-stripe); }
-.log__time { color: var(--muted); flex-shrink: 0; }
-.log__msg { flex: 1; }
-.log__detail { color: var(--muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.log__row--success .log__msg { color: var(--good); }
-.log__row--warn .log__msg { color: var(--warn); }
-.log__row--error .log__msg { color: var(--bad); }
-.log__row--muted .log__msg { color: var(--muted); }
+.log {
+  list-style: none; margin: 0; padding: 0;
+  max-height: 320px; overflow-y: auto;
+  display: flex; flex-direction: column;
+}
+.log__empty { color: var(--faint); font-size: 11px; padding: 10px 0; }
+.log__row {
+  display: flex; gap: 10px; align-items: baseline;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--row-line);
+  font-size: 12px;
+}
+.log__row:last-child { border-bottom: 0; }
+.log__time { color: var(--time); font-size: 9px; flex-shrink: 0; }
+.log__msg { flex: 1; color: var(--log-text); }
+.log__detail { color: var(--faint); font-size: 10px; max-width: 38%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log__row--success .log__msg { color: var(--good-icon); }
+.log__row--warn .log__msg { color: var(--warn-text); }
+.log__row--error .log__msg { color: var(--bad-text); }
+.log__row--muted .log__msg { color: var(--log-muted); }
+
+/* ── narrow screens ─────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .app { padding: 20px 12px 40px; }
+  .panel { padding: 15px; }
+  .facts { gap: 18px; }
+  .log__detail { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}

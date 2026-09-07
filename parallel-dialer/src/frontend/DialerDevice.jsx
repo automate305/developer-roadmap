@@ -451,7 +451,7 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
         <h2 className="panel__title">Dial list</h2>
         <textarea
           className="textarea mono"
-          rows={5}
+          rows={4}
           placeholder={'+13055550123\n+17865550188\n+19545550142'}
           value={leadsText}
           onChange={(e) => setLeadsText(e.target.value)}
