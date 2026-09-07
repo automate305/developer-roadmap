@@ -28,6 +28,23 @@ export const env = {
   get redisUrl() {
     return process.env.REDIS_URL?.trim() || 'redis://localhost:6379';
   },
+  /**
+   * Postgres schema holding the SEP tables. Defaults to `public`, but the
+   * deployment shares a database with another app, so its tables live in a
+   * dedicated schema. Read from `?schema=` on the connection string when
+   * present, else DATABASE_SCHEMA.
+   */
+  get databaseSchema(): string | undefined {
+    const fromUrl = (() => {
+      try {
+        return new URL(required('DATABASE_URL')).searchParams.get('schema');
+      } catch {
+        return null;
+      }
+    })();
+    const schema = fromUrl?.trim() || process.env.DATABASE_SCHEMA?.trim();
+    return schema && schema !== 'public' ? schema : undefined;
+  },
   /** Absolute origin used to build tracking-pixel URLs embedded in outbound mail. */
   get appUrl() {
     return (process.env.APP_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');

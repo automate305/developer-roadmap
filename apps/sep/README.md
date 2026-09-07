@@ -130,16 +130,32 @@ control (Railway, Fly, a VPS) pointed at the same Postgres and a Redis.
 
 | Variable | Required | Notes |
 | --- | --- | --- |
-| `DATABASE_URL` | yes | Postgres connection string. Without it every page renders its error state; the build still succeeds. |
+| `DATABASE_URL` | yes | Postgres connection string, including `?schema=sep`. Without it every page renders its error state; the build still succeeds. |
 | `APP_URL` | yes | The deployment's own origin. It is baked into tracking pixel URLs, so it must be reachable by recipients. |
 | `REDIS_URL` | workers only | Not read by any page or route. Set it wherever the workers run. |
 
-After setting `DATABASE_URL`, apply the schema once from a machine that can
-reach the database:
+### Sharing a database with OUTBOX
+
+The deployed instance points at the existing `a305-sep` Supabase project, whose
+`public` schema belongs to OUTBOX. The SEP tables therefore live in a dedicated
+`sep` schema and never touch it.
+
+Two pieces make that work:
+
+- The connection string carries `?schema=sep`. Prisma Migrate creates objects
+  there, and `lib/env.ts` reads the same parameter (falling back to
+  `DATABASE_SCHEMA`).
+- `lib/prisma.ts` passes that schema to the pg driver adapter, so every
+  generated query is qualified.
+
+Nothing else in the app assumes a schema name; leaving the parameter off puts
+the tables in `public`, which is what local development does.
+
+To apply the schema to a fresh database:
 
 ```bash
 cd apps/sep
-DATABASE_URL="<connection string>" npx prisma migrate deploy
+DATABASE_URL="<connection string>?schema=sep" npx prisma migrate deploy
 ```
 
 Redeploy afterwards so the running instance picks up the variables.
