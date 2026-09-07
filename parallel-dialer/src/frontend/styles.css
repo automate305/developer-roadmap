@@ -1,16 +1,34 @@
 :root {
-  color-scheme: light dark;
-  --bg: #0d1117;
-  --panel: #161b22;
-  --panel-alt: #1c2230;
-  --border: #2a3140;
-  --text: #e6edf3;
-  --muted: #8b949e;
-  --accent: #2f81f7;
-  --good: #3fb950;
-  --warn: #d29922;
-  --bad: #f85149;
-  --live: #a371f7;
+  color-scheme: dark;
+
+  /* ── Brand palette ─────────────────────────────────────────────────────────
+     Every colour in this stylesheet resolves to one of these eleven values.
+     To re-skin the workstation, replace this block and nothing else. */
+  --bg: #0d1117;          /* page ground */
+  --panel: #161b22;       /* card surface */
+  --panel-alt: #1c2230;   /* raised surface: buttons, meter tracks */
+  --border: #2a3140;      /* hairlines */
+  --text: #e6edf3;        /* primary text */
+  --muted: #8b949e;       /* secondary text, labels */
+  --accent: #2f81f7;      /* primary action */
+  --good: #3fb950;        /* ready, connected, mic level */
+  --warn: #d29922;        /* ringing, muted mic */
+  --bad: #f85149;         /* errors, end call */
+  --live: #a371f7;        /* in-call state */
+
+  /* ── Contrast pairs ────────────────────────────────────────────────────────
+     Text drawn on top of a filled brand colour. Flip these to a dark value if
+     the palette above uses light accents. */
+  --on-accent: #ffffff;
+  --on-bad: #ffffff;
+  --on-warn: color-mix(in srgb, var(--warn) 18%, #000000);
+
+  /* ── Derived tints ─────────────────────────────────────────────────────────
+     Mixed from the palette, so a re-skin carries through automatically. */
+  --bad-tint: color-mix(in srgb, var(--bad) 12%, transparent);
+  --bad-text: color-mix(in srgb, var(--bad) 55%, var(--text));
+  --row-stripe: color-mix(in srgb, var(--text) 3%, transparent);
+
   --radius: 10px;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
@@ -58,7 +76,7 @@ body {
 .panel__head { display: flex; align-items: center; justify-content: space-between; }
 
 .alert { padding: 12px 14px; border-radius: var(--radius); font-size: 14px; }
-.alert--error { background: rgba(248, 81, 73, 0.12); border: 1px solid var(--bad); color: #ffb3ae; }
+.alert--error { background: var(--bad-tint); border: 1px solid var(--bad); color: var(--bad-text); }
 
 /* ── controls ───────────────────────────────────────────────────────────── */
 .row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
@@ -72,9 +90,9 @@ body {
 }
 .btn:hover:not(:disabled) { filter: brightness(1.25); }
 .btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
-.btn--danger { background: var(--bad); border-color: var(--bad); color: #fff; }
-.btn--warn { background: var(--warn); border-color: var(--warn); color: #1b1300; }
+.btn--primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn--danger { background: var(--bad); border-color: var(--bad); color: var(--on-bad); }
+.btn--warn { background: var(--warn); border-color: var(--warn); color: var(--on-warn); }
 .btn--ghost { background: transparent; border-color: transparent; color: var(--muted); }
 
 .toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; cursor: pointer; }
@@ -108,7 +126,7 @@ body {
 .log { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
 .log__empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
 .log__row { display: flex; gap: 10px; padding: 5px 6px; border-radius: 6px; font-size: 13px; align-items: baseline; }
-.log__row:nth-child(odd) { background: rgba(255, 255, 255, 0.02); }
+.log__row:nth-child(odd) { background: var(--row-stripe); }
 .log__time { color: var(--muted); flex-shrink: 0; }
 .log__msg { flex: 1; }
 .log__detail { color: var(--muted); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
