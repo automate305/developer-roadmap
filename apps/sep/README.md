@@ -1,0 +1,115 @@
+# Automate305 SEP
+
+A self-hosted sales engagement platform: multi-step email sequences, per-mailbox
+sending limits, open tracking, and IMAP reply detection that halts a sequence the
+moment a lead answers.
+
+Built as a standalone app inside this repository at `apps/sep`. Nothing outside
+that directory is touched.
+
+## Stack
+
+| Concern | Choice |
+| --- | --- |
+| App + API | Next.js 16 (App Router, Server Actions), React 19 |
+| Styling | Tailwind CSS 4, shadcn-style primitives on Radix Slot |
+| Database | PostgreSQL via Prisma 7 (`@prisma/adapter-pg`) |
+| Queue | BullMQ 6 on Redis |
+| Outbound | Nodemailer over SMTP |
+| Inbound | imapflow + mailparser |
+
+## Data model
+
+```
+Campaign ──┬── SequenceStep   (stepOrder, delayDays, subject/body with {{tags}})
+           ├── Lead           (UNCONTACTED → IN_SEQUENCE → REPLIED / OPTED_OUT)
+           └── EmailLog       (SENT / OPENED / BOUNCED / FAILED, openedAt, sentAt)
+
+SendingAccount ── Campaign    (SMTP + IMAP credentials, maxDaily cap)
+```
+
+`prisma/schema.prisma` is the source of truth. Prisma 7 no longer reads the
+connection string from the schema: migrations take it from `prisma.config.ts`
+and the runtime client is built with a driver adapter in `lib/prisma.ts`.
+
+## Getting started
+
+```bash
+cd apps/sep
+npm install
+cp .env.example .env          # fill in DATABASE_URL and REDIS_URL
+npx prisma generate
+npx prisma migrate deploy     # or `npx prisma migrate dev` while iterating
+npx prisma db seed            # optional demo campaign
+npm run dev                   # app on http://localhost:3000
+npm run workers               # sender + scheduler + IMAP poller
+```
+
+`APP_URL` must be the origin recipients can reach, because it is baked into the
+tracking pixel URL inside every outbound email.
+
+## How a send happens
+
+1. Activating a campaign schedules every uncontacted lead onto step 1
+   (`lib/sequence.ts`).
+2. The scheduler tick in `workers/index.ts` finds due leads once a minute and
+   enqueues one job per lead and step. The job id is derived from lead and step,
+   so a repeated tick cannot double-send.
+3. `workers/email-worker.ts` renders the template, injects the tracking pixel,
+   claims a slot against the mailbox's daily cap, writes the `EmailLog` row, then
+   dispatches over SMTP and schedules the next step.
+4. `/api/track/open` serves a 1x1 transparent GIF with `Cache-Control: no-store`
+   and stamps `openedAt` plus an open counter.
+5. `workers/reply-worker.ts` polls each mailbox every two minutes. A matched
+   reply sets `Lead.status = REPLIED` and clears `nextSendAt`, which is what
+   cancels the remaining steps.
+
+### Execution guard
+
+The worker refuses to send to a lead whose status is `REPLIED` or `OPTED_OUT`.
+It checks twice: once when the job is picked up, and again immediately before
+handing the message to SMTP, so a reply that lands mid-job still wins the race.
+The scheduler independently skips those leads, and a halted lead has its
+`nextSendAt` cleared.
+
+## Templating
+
+Subjects and bodies support `{{firstName}}`, `{{lastName}}`, `{{company}}`,
+`{{email}}`, `{{fullName}}`, and any extra CSV column captured at import.
+A fallback follows a pipe: `{{firstName|there}}`.
+
+## CSV import
+
+`components/csv-importer.tsx` parses the file in the browser with papaparse,
+auto-matches Email / First name / Last name / Company against common header
+spellings, and shows a five-row preview before anything is written. Columns you
+do not map are preserved as custom fields and stay usable as template tags.
+`/api/leads/import` validates, lowercases and de-duplicates rows, then upserts in
+chunks of 250 keyed on `(campaignId, email)`, so a re-import enriches existing
+leads without resetting their progress.
+
+## Validation
+
+```bash
+npm run typecheck
+npm run build
+npm run simulate      # end-to-end pipeline check, needs DATABASE_URL only
+```
+
+`scripts/simulate-pipeline.ts` seeds a campaign, dispatches step 1 through a
+stubbed transport, calls the real tracking route, feeds in a simulated IMAP
+reply, and asserts that every later step is refused. It also covers opt-outs,
+daily-cap accounting, and the retry path. It cleans up after itself unless you
+pass `--keep`.
+
+## Operational notes
+
+- Daily caps are per mailbox and reset at UTC midnight, rolled over lazily on the
+  first send of a new day. A failed send returns its claimed slot.
+- A send that hits the cap is deferred to the next UTC day rather than retried.
+- Auto-replies and out-of-office messages are ignored; bounce notices mark the
+  `EmailLog` as `BOUNCED` without halting the lead.
+- Every server action returns `{ ok }` or `{ ok: false, error }`, and every page
+  renders an error state instead of throwing when the database is unreachable.
+- SMTP and IMAP passwords are stored as written. Put a secrets manager in front
+  of this before using it against production mailboxes.

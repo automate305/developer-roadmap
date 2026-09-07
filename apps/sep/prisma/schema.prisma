@@ -1,0 +1,187 @@
+// Automate305 Sales Engagement Platform — data model.
+//
+// Entity hierarchy:
+//   Campaign 1─┬─* SequenceStep   (ordered steps, delayDays apart)
+//              ├─* Lead           (recipients, status-gated)
+//              └─* EmailLog       (one row per dispatched send)
+//   SendingAccount 1─* Campaign / EmailLog (SMTP + IMAP mailbox, daily cap)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+// Prisma 7 moved connection URLs out of the schema: migrations read the URL from
+// prisma.config.ts, and the runtime client is constructed with a driver adapter
+// (see lib/prisma.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum LeadStatus {
+  UNCONTACTED
+  IN_SEQUENCE
+  REPLIED
+  OPTED_OUT
+}
+
+enum EmailStatus {
+  SENT
+  OPENED
+  BOUNCED
+  FAILED
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      CampaignStatus @default(DRAFT)
+
+  // Mailbox used to dispatch this campaign. Nullable so a DRAFT can exist first.
+  sendingAccountId String?
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+
+  steps     SequenceStep[]
+  leads     Lead[]
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([sendingAccountId])
+}
+
+model SequenceStep {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  // 1-based position in the sequence.
+  stepOrder Int
+  // Days to wait after the previous step before this one is eligible to send.
+  delayDays Int @default(0)
+
+  // Both support template tags: {{firstName}}, {{lastName}}, {{company}}, {{email}}.
+  subject String
+  body    String
+
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, stepOrder])
+  @@index([campaignId])
+}
+
+model Lead {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  email     String
+  firstName String?
+  lastName  String?
+  company   String?
+  // Any extra CSV columns preserved verbatim for template substitution.
+  customFields Json?
+
+  status LeadStatus @default(UNCONTACTED)
+
+  // Highest stepOrder already delivered. 0 means nothing sent yet.
+  currentStep Int       @default(0)
+  // When the next step becomes eligible. Null once the sequence is exhausted.
+  nextSendAt  DateTime?
+
+  lastContactedAt DateTime?
+  repliedAt       DateTime?
+  optedOutAt      DateTime?
+
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
+  @@index([status, nextSendAt])
+  @@index([email])
+}
+
+model SendingAccount {
+  id        String @id @default(cuid())
+  name      String
+  fromName  String
+  fromEmail String @unique
+
+  smtpHost     String
+  smtpPort     Int     @default(587)
+  smtpSecure   Boolean @default(false)
+  smtpUser     String
+  smtpPassword String
+
+  imapHost     String?
+  imapPort     Int?    @default(993)
+  imapSecure   Boolean @default(true)
+  imapUser     String?
+  imapPassword String?
+
+  // Per-mailbox throttle. sentToday resets when lastResetAt rolls to a new UTC day.
+  maxDaily    Int      @default(50)
+  sentToday   Int      @default(0)
+  lastResetAt DateTime @default(now())
+
+  isActive Boolean @default(true)
+
+  campaigns Campaign[]
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model EmailLog {
+  id String @id @default(cuid())
+
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  sequenceStepId String?
+  sequenceStep   SequenceStep? @relation(fields: [sequenceStepId], references: [id], onDelete: SetNull)
+
+  sendingAccountId String?
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+
+  status  EmailStatus @default(SENT)
+  subject String
+  stepOrder Int       @default(1)
+
+  // SMTP Message-ID, used by the reply worker to thread inbound mail.
+  messageId String? @unique
+  // Opaque id embedded in the tracking pixel URL.
+  trackingId String @unique
+
+  sentAt    DateTime  @default(now())
+  openedAt  DateTime?
+  openCount Int       @default(0)
+  error     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId, status])
+  @@index([leadId])
+  @@index([sentAt])
+}
