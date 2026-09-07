@@ -113,3 +113,33 @@ pass `--keep`.
   renders an error state instead of throwing when the database is unreachable.
 - SMTP and IMAP passwords are stored as written. Put a secrets manager in front
   of this before using it against production mailboxes.
+
+## Deploying to Vercel
+
+The Vercel project **a305-sep-web** is linked to `automate305/developer-roadmap`
+with the root directory set to `apps/sep`. Every push to a branch produces a
+preview deployment; pushes to `master` produce production once this app is
+merged there.
+
+Vercel hosts the web surface only: the dashboard, `/api/leads/import`, and the
+tracking pixel at `/api/track/open`. The BullMQ workers are long-lived
+processes and cannot run on Vercel, so `npm run workers` belongs on a host you
+control (Railway, Fly, a VPS) pointed at the same Postgres and a Redis.
+
+### Environment variables to set on the project
+
+| Variable | Required | Notes |
+| --- | --- | --- |
+| `DATABASE_URL` | yes | Postgres connection string. Without it every page renders its error state; the build still succeeds. |
+| `APP_URL` | yes | The deployment's own origin. It is baked into tracking pixel URLs, so it must be reachable by recipients. |
+| `REDIS_URL` | workers only | Not read by any page or route. Set it wherever the workers run. |
+
+After setting `DATABASE_URL`, apply the schema once from a machine that can
+reach the database:
+
+```bash
+cd apps/sep
+DATABASE_URL="<connection string>" npx prisma migrate deploy
+```
+
+Redeploy afterwards so the running instance picks up the variables.
