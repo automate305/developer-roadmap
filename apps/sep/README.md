@@ -121,6 +121,17 @@ with the root directory set to `apps/sep`. Every push to a branch produces a
 preview deployment; pushes to `master` produce production once this app is
 merged there.
 
+`vercel.json` sets `ignoreCommand` so a push that changes nothing under
+`apps/sep` is skipped rather than rebuilt — this repository also carries
+unrelated roadmap content and other projects.
+
+That guard cannot help branches that predate this app: Vercel resolves the root
+directory before reading `vercel.json`, so a branch with no `apps/sep` fails the
+build with "The specified Root Directory does not exist". Merging this app to
+`master` makes the directory exist for every branch cut afterwards; older
+branches need a rebase, or a project-level Ignored Build Step in Vercel's
+settings.
+
 Vercel hosts the dashboard, `/api/leads/import`, the tracking pixel at
 `/api/track/open`, and the two scheduled routes that drive sending.
 
