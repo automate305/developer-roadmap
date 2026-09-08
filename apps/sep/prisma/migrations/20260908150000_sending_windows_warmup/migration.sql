@@ -1,0 +1,12 @@
+-- Sending windows, jitter and warmup, all per mailbox.
+
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "timezone" TEXT NOT NULL DEFAULT 'America/New_York';
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "sendWindowStartHour" INTEGER NOT NULL DEFAULT 8;
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "sendWindowEndHour" INTEGER NOT NULL DEFAULT 17;
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "sendDays" INTEGER[] NOT NULL DEFAULT ARRAY[1, 2, 3, 4, 5];
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "jitterMinutes" INTEGER NOT NULL DEFAULT 45;
+
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "warmupEnabled" BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "warmupStartedAt" TIMESTAMP(3);
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "warmupInitialDaily" INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE "SendingAccount" ADD COLUMN IF NOT EXISTS "warmupDailyIncrement" INTEGER NOT NULL DEFAULT 5;
