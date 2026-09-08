@@ -8,6 +8,7 @@ const LINKS = [
   { href: '/', label: 'Dashboard' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/accounts', label: 'Sending Accounts' },
+  { href: '/suppressions', label: 'Blocked' },
 ];
 
 export function AppNav() {

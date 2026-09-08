@@ -101,6 +101,22 @@ where you keep other production secrets. Rotating it means decrypting with the
 old key and re-encrypting with the new one; the `v1:` prefix is there to make
 that possible without ambiguity.
 
+## Seeing what is happening
+
+The dashboard carries a bounce rate alongside the open and reply rates, and
+turns it red past 2% — roughly where mailbox providers start to take notice.
+Open rate is measured against *delivered* mail, so bounces do not quietly
+flatter it.
+
+**Blocked** lists every suppressed address with the reason, the diagnostic the
+receiving server actually returned, and how many times it has failed. An address
+can be unblocked, which also returns its halted leads to the start of their
+sequence, and one can be blocked by hand.
+
+The **Sending Accounts** table shows each mailbox's window, timezone and jitter,
+today's send count against the ramped cap rather than the ceiling, and how many
+days a warming mailbox has left before it reaches full volume.
+
 ## Sending windows and warmup
 
 Both live on the mailbox, because sending reputation is judged per address.
