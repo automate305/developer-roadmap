@@ -57,6 +57,11 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
 
   const [leadsText, setLeadsText] = useState('');
   const [batchSize, setBatchSize] = useState(4);
+  // 'power'  → one line, agent bridged on answer, no AMD verdict acted on.
+  // 'parallel' → N lines, the AMD verdict picks who reaches the agent.
+  const [mode, setMode] = useState('power');
+  const screening = mode === 'parallel';
+  const effectiveBatchSize = screening ? Number(batchSize) : 1;
   const [session, setSession] = useState(null);
   const [starting, setStarting] = useState(false);
 
@@ -290,19 +295,26 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
       const response = await fetch(`${apiBase}/api/sessions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ agentIdentity: identity, leads, batchSize: Number(batchSize) }),
+        body: JSON.stringify({
+          agentIdentity: identity, leads, batchSize: effectiveBatchSize, screening,
+        }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || body.error || 'Failed to start session');
 
       setSession(body);
-      pushEvent('success', `Dialing ${leads.length} leads, ${batchSize} lines at a time`);
+      pushEvent(
+        'success',
+        screening
+          ? `Dialing ${leads.length} leads, ${effectiveBatchSize} lines at a time`
+          : `Power dialing ${leads.length} leads, one line at a time`,
+      );
     } catch (err) {
       pushEvent('error', `Could not start dialing: ${err.message}`);
     } finally {
       setStarting(false);
     }
-  }, [leadsText, batchSize, apiBase, authHeaders, identity, pushEvent]);
+  }, [leadsText, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent]);
 
   const stopSession = useCallback(async () => {
     if (!session?.sessionId) return;
@@ -457,6 +469,29 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
           onChange={(e) => setLeadsText(e.target.value)}
           disabled={Boolean(session)}
         />
+        <div className="modes" role="group" aria-label="Dialing mode">
+          <button
+            type="button"
+            className={`mode ${mode === 'power' ? 'mode--on' : ''}`}
+            aria-pressed={mode === 'power'}
+            onClick={() => setMode('power')}
+            disabled={Boolean(session)}
+          >
+            <span className="mode__name">Power dial</span>
+            <span className="mode__note">One line. You hear every call.</span>
+          </button>
+          <button
+            type="button"
+            className={`mode ${mode === 'parallel' ? 'mode--on' : ''}`}
+            aria-pressed={mode === 'parallel'}
+            onClick={() => setMode('parallel')}
+            disabled={Boolean(session)}
+          >
+            <span className="mode__name">Parallel dial</span>
+            <span className="mode__note">Several lines. Voicemails screened out.</span>
+          </button>
+        </div>
+
         <div className="row">
           <label className="field">
             Lines per batch
@@ -464,9 +499,9 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
               type="number"
               min={1}
               max={10}
-              value={batchSize}
+              value={screening ? batchSize : 1}
               onChange={(e) => setBatchSize(e.target.value)}
-              disabled={Boolean(session)}
+              disabled={Boolean(session) || !screening}
             />
           </label>
           <button
