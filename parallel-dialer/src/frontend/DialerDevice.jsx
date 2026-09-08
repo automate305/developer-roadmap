@@ -398,165 +398,185 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
         </div>
       )}
 
-      <section className="panel">
-        <h2 className="panel__title">Device</h2>
-        <div className="row">
-          <button type="button" className="btn btn--primary" onClick={goOnline} disabled={online}>
-            Go online
-          </button>
-          <button type="button" className="btn" onClick={goOffline} disabled={!online}>
-            Go offline
-          </button>
-          <label className="toggle">
-            <input type="checkbox" checked={autoAnswer} onChange={(e) => setAutoAnswer(e.target.checked)} />
-            Auto-answer connected leads
-          </label>
-        </div>
-      </section>
-
-      {pendingCall && (
-        <section className="panel panel--ringing">
-          <h2 className="panel__title">Incoming lead</h2>
-          <p className="mono">{pendingCall.parameters?.From ?? 'unknown number'}</p>
-          <div className="row">
-            <button type="button" className="btn btn--primary" onClick={acceptCall}>
-              Answer
-            </button>
-            <button type="button" className="btn btn--danger" onClick={rejectCall}>
-              Reject
-            </button>
-          </div>
-        </section>
-      )}
-
-      {inCall && (
-        <section className="panel panel--live">
-          <h2 className="panel__title">On call</h2>
-          <dl className="facts">
-            <div>
-              <dt>Number</dt>
-              <dd className="mono">{callInfo?.from ?? '—'}</dd>
+      <div className="dialer__cols">
+        {/* Left: what the agent sets up before dialing. */}
+        <div className="dialer__col">
+          <section className="panel">
+            <h2 className="panel__title">Device</h2>
+            <div className="row">
+              <button type="button" className="btn btn--primary" onClick={goOnline} disabled={online}>
+                Go online
+              </button>
+              <button type="button" className="btn" onClick={goOffline} disabled={!online}>
+                Go offline
+              </button>
+              <label className="toggle">
+                <input type="checkbox" checked={autoAnswer} onChange={(e) => setAutoAnswer(e.target.checked)} />
+                Auto-answer connected leads
+              </label>
             </div>
-            <div>
-              <dt>Duration</dt>
-              <dd className="mono">{formatDuration(elapsed)}</dd>
-            </div>
-          </dl>
+          </section>
 
-          <div className="meters">
-            <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
-            <Meter label="Lead" value={outputLevel} />
-          </div>
-
-          <div className="row">
-            <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
-              {muted ? 'Unmute' : 'Mute'}
-            </button>
-            <button type="button" className="btn btn--danger" onClick={hangUp}>
-              End call
-            </button>
-          </div>
-        </section>
-      )}
-
-      <section className="panel">
-        <h2 className="panel__title">Dial list</h2>
-        <textarea
-          className="textarea mono"
-          rows={4}
-          placeholder={'+13055550123\n+17865550188\n+19545550142'}
-          value={leadsText}
-          onChange={(e) => setLeadsText(e.target.value)}
-          disabled={Boolean(session)}
-        />
-        <div className="modes" role="group" aria-label="Dialing mode">
-          <button
-            type="button"
-            className={`mode ${mode === 'power' ? 'mode--on' : ''}`}
-            aria-pressed={mode === 'power'}
-            onClick={() => setMode('power')}
-            disabled={Boolean(session)}
-          >
-            <span className="mode__name">Power dial</span>
-            <span className="mode__note">One line. You hear every call.</span>
-          </button>
-          <button
-            type="button"
-            className={`mode ${mode === 'parallel' ? 'mode--on' : ''}`}
-            aria-pressed={mode === 'parallel'}
-            onClick={() => setMode('parallel')}
-            disabled={Boolean(session)}
-          >
-            <span className="mode__name">Parallel dial</span>
-            <span className="mode__note">Several lines. Voicemails screened out.</span>
-          </button>
-        </div>
-
-        <div className="row">
-          <label className="field">
-            Lines per batch
-            <input
-              type="number"
-              min={1}
-              max={10}
-              value={screening ? batchSize : 1}
-              onChange={(e) => setBatchSize(e.target.value)}
-              disabled={Boolean(session) || !screening}
+          <section className="panel">
+            <h2 className="panel__title">Dial list</h2>
+            <textarea
+              className="textarea mono"
+              rows={4}
+              placeholder={'+13055550123\n+17865550188\n+19545550142'}
+              value={leadsText}
+              onChange={(e) => setLeadsText(e.target.value)}
+              disabled={Boolean(session)}
             />
-          </label>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={startSession}
-            disabled={!online || starting || Boolean(session)}
-          >
-            {starting ? 'Starting…' : 'Start dialing'}
-          </button>
-          <button type="button" className="btn btn--danger" onClick={stopSession} disabled={!session}>
-            Stop
-          </button>
+            <div className="modes" role="group" aria-label="Dialing mode">
+              <button
+                type="button"
+                className={`mode ${mode === 'power' ? 'mode--on' : ''}`}
+                aria-pressed={mode === 'power'}
+                onClick={() => setMode('power')}
+                disabled={Boolean(session)}
+              >
+                <span className="mode__name">Power dial</span>
+                <span className="mode__note">One line. You hear every call.</span>
+              </button>
+              <button
+                type="button"
+                className={`mode ${mode === 'parallel' ? 'mode--on' : ''}`}
+                aria-pressed={mode === 'parallel'}
+                onClick={() => setMode('parallel')}
+                disabled={Boolean(session)}
+              >
+                <span className="mode__name">Parallel dial</span>
+                <span className="mode__note">Several lines. Voicemails screened out.</span>
+              </button>
+            </div>
+
+            <div className="row">
+              <label className="field">
+                Lines per batch
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={screening ? batchSize : 1}
+                  onChange={(e) => setBatchSize(e.target.value)}
+                  disabled={Boolean(session) || !screening}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn--primary"
+                onClick={startSession}
+                disabled={!online || starting || Boolean(session)}
+              >
+                {starting ? 'Starting…' : 'Start dialing'}
+              </button>
+              <button type="button" className="btn btn--danger" onClick={stopSession} disabled={!session}>
+                Stop
+              </button>
+            </div>
+
+            {session && (
+              <dl className="facts facts--wide">
+                <div>
+                  <dt>Remaining</dt>
+                  <dd className="mono">{session.remainingLeads}</dd>
+                </div>
+                <div>
+                  <dt>Humans</dt>
+                  <dd className="mono">{session.stats?.humans ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>Machines</dt>
+                  <dd className="mono">{session.stats?.machines ?? 0}</dd>
+                </div>
+                <div>
+                  <dt>No answer</dt>
+                  <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
+                </div>
+              </dl>
+            )}
+          </section>
         </div>
 
-        {session && (
-          <dl className="facts facts--wide">
-            <div>
-              <dt>Remaining</dt>
-              <dd className="mono">{session.remainingLeads}</dd>
-            </div>
-            <div>
-              <dt>Humans</dt>
-              <dd className="mono">{session.stats?.humans ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Machines</dt>
-              <dd className="mono">{session.stats?.machines ?? 0}</dd>
-            </div>
-            <div>
-              <dt>No answer</dt>
-              <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
-            </div>
-          </dl>
-        )}
-      </section>
+        {/* Right: what the agent watches while a call is live. The slot
+            is always rendered so answering a call does not reflow the page. */}
+        <div className="dialer__col">
+          {pendingCall && (
+            <section className="panel panel--ringing">
+              <h2 className="panel__title">Incoming lead</h2>
+              <p className="mono">{pendingCall.parameters?.From ?? 'unknown number'}</p>
+              <div className="row">
+                <button type="button" className="btn btn--primary" onClick={acceptCall}>
+                  Answer
+                </button>
+                <button type="button" className="btn btn--danger" onClick={rejectCall}>
+                  Reject
+                </button>
+              </div>
+            </section>
+          )}
 
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="panel__title">Activity</h2>
-          <button type="button" className="btn btn--ghost" onClick={() => setEvents([])}>
-            Clear
-          </button>
+          {inCall && (
+            <section className="panel panel--live">
+              <h2 className="panel__title">On call</h2>
+              <dl className="facts">
+                <div>
+                  <dt>Number</dt>
+                  <dd className="mono">{callInfo?.from ?? '—'}</dd>
+                </div>
+                <div>
+                  <dt>Duration</dt>
+                  <dd className="mono">{formatDuration(elapsed)}</dd>
+                </div>
+              </dl>
+
+              <div className="meters">
+                <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
+                <Meter label="Lead" value={outputLevel} />
+              </div>
+
+              <div className="row">
+                <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
+                  {muted ? 'Unmute' : 'Mute'}
+                </button>
+                <button type="button" className="btn btn--danger" onClick={hangUp}>
+                  End call
+                </button>
+              </div>
+            </section>
+          )}
+
+          {!pendingCall && !inCall && (
+            <section className="panel panel--idle">
+              <h2 className="panel__title">Call</h2>
+              <p className="idle__text">
+                {online
+                  ? 'Nothing on the line. A connected lead lands here.'
+                  : 'Go online to take calls.'}
+              </p>
+            </section>
+          )}
+
+          <section className="panel">
+            <div className="panel__head">
+              <h2 className="panel__title">Activity</h2>
+              <button type="button" className="btn btn--ghost" onClick={() => setEvents([])}>
+                Clear
+              </button>
+            </div>
+            <ul className="log">
+              {events.length === 0 && <li className="log__empty">Nothing yet.</li>}
+              {events.map((entry) => (
+                <li key={entry.id} className={`log__row log__row--${entry.level}`}>
+                  <time className="log__time mono">{entry.at.toLocaleTimeString()}</time>
+                  <span className="log__msg">{entry.message}</span>
+                  {entry.detail && <span className="log__detail mono">{entry.detail}</span>}
+                </li>
+              ))}
+            </ul>
+          </section>
         </div>
-        <ul className="log">
-          {events.length === 0 && <li className="log__empty">Nothing yet.</li>}
-          {events.map((entry) => (
-            <li key={entry.id} className={`log__row log__row--${entry.level}`}>
-              <time className="log__time mono">{entry.at.toLocaleTimeString()}</time>
-              <span className="log__msg">{entry.message}</span>
-              {entry.detail && <span className="log__detail mono">{entry.detail}</span>}
-            </li>
-          ))}
-        </ul>
-      </section>
+      </div>
     </div>
   );
 }

@@ -149,7 +149,24 @@ textarea:focus-visible {
 }
 
 .app { position: relative; z-index: 1; display: flex; justify-content: center; padding: 32px 16px 64px; }
-.dialer { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 17px; }
+.dialer { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 17px; }
+
+/* Two working surfaces: what you set up on the left, what you watch on the
+   right. Columns are equal because neither is subordinate — during a live
+   call the right side is the one that matters. */
+.dialer__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 17px;
+  align-items: start;
+}
+.dialer__col { display: flex; flex-direction: column; gap: 17px; min-width: 0; }
+
+/* Below this the two columns stop earning their width and the panels get
+   too narrow for the dial list to be usable. */
+@media (max-width: 940px) {
+  .dialer__cols { grid-template-columns: minmax(0, 1fr); }
+}
 .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* ── header ─────────────────────────────────────────────────────────────── */
@@ -206,6 +223,11 @@ textarea:focus-visible {
 
 .panel--ringing { border-color: var(--warn-panel-line); }
 .panel--live { border-color: var(--live-panel-line); }
+/* The call slot is always rendered, empty or not, so answering a call swaps
+   the panel's contents instead of inserting a panel and shifting the page
+   under the agent's cursor. */
+.panel--idle { border-style: dashed; }
+.idle__text { margin: 0; color: var(--faint); font-size: 12px; }
 
 .panel__title {
   margin: 0;
@@ -320,7 +342,7 @@ textarea:focus-visible {
 /* ── activity log ───────────────────────────────────────────────────────── */
 .log {
   list-style: none; margin: 0; padding: 0;
-  max-height: 320px; overflow-y: auto;
+  max-height: 380px; overflow-y: auto;
   display: flex; flex-direction: column;
 }
 .log__empty { color: var(--faint); font-size: 11px; padding: 10px 0; }
