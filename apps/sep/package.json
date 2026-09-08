@@ -17,6 +17,7 @@
     "worker:email": "tsx workers/email-worker.ts",
     "worker:reply": "tsx workers/reply-worker.ts",
     "simulate": "tsx scripts/simulate-pipeline.ts",
+    "encrypt:credentials": "tsx scripts/encrypt-credentials.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

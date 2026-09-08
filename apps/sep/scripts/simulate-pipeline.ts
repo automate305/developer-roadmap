@@ -19,6 +19,7 @@ import { processSendJob } from '../lib/dispatch';
 import { handleInboundMessage } from '../lib/inbound';
 import { scheduleCampaignLeads, findDueLeads } from '../lib/sequence';
 import { optOutByToken, unsubscribePageUrl, oneClickUnsubscribeUrl } from '../lib/unsubscribe';
+import { encryptSecret, decryptSecret, isEncrypted } from '../lib/crypto';
 import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import type { MailSender, OutboundMessage } from '../lib/mailer';
@@ -452,6 +453,74 @@ async function main() {
     'a lead is only opted out by an explicit action, never by lookup',
     stillActive.status !== LeadStatus.OPTED_OUT,
   );
+
+  // ------------------------------------------------ credential encryption ---
+  section('9. Mailbox credentials are encrypted at rest');
+
+  const secret = 'hunter2-smtp-password';
+  const envelope = encryptSecret(secret);
+
+  check('the stored value is an envelope, not the password', isEncrypted(envelope));
+  check('the password does not appear in the stored value', !envelope.includes(secret));
+  check('it decrypts back to the original', decryptSecret(envelope) === secret);
+
+  const second = encryptSecret(secret);
+  check(
+    'encrypting twice gives different ciphertext',
+    second !== envelope,
+    'a repeated IV would leak that two mailboxes share a password',
+  );
+  check('both envelopes decrypt to the same secret', decryptSecret(second) === secret);
+
+  // AES-GCM authenticates: altering the ciphertext must fail, not decode garbage.
+  const [version, iv, tag, data] = envelope.split(':');
+  const flipped = Buffer.from(data, 'base64');
+  flipped[0] = flipped[0] ^ 0xff;
+  let tamperRejected = false;
+  try {
+    decryptSecret([version, iv, tag, flipped.toString('base64')].join(':'));
+  } catch {
+    tamperRejected = true;
+  }
+  check('a tampered ciphertext is rejected', tamperRejected);
+
+  check(
+    'a legacy plaintext credential still works',
+    decryptSecret('plain-text-from-before-encryption') === 'plain-text-from-before-encryption',
+  );
+
+  // The mailer must accept an encrypted password without the caller unwrapping it.
+  const encryptedAccount = await prisma.sendingAccount.create({
+    data: {
+      name: `${TAG} encrypted mailbox`,
+      fromName: 'Cam (simulation)',
+      fromEmail: `enc-${Date.now()}@automate305.test`,
+      smtpHost: 'smtp.invalid',
+      smtpPort: 587,
+      smtpUser: 'sim',
+      smtpPassword: encryptSecret('smtp-secret'),
+      imapHost: 'imap.invalid',
+      imapUser: 'sim',
+      imapPassword: encryptSecret('imap-secret'),
+      maxDaily: 5,
+    },
+  });
+
+  const storedAccount = await prisma.sendingAccount.findUniqueOrThrow({
+    where: { id: encryptedAccount.id },
+  });
+  check('the row holds no readable SMTP password', !storedAccount.smtpPassword.includes('smtp-secret'));
+  check(
+    'the row holds no readable IMAP password',
+    Boolean(storedAccount.imapPassword) && !storedAccount.imapPassword!.includes('imap-secret'),
+  );
+  check('the SMTP password decrypts at the point of use', decryptSecret(storedAccount.smtpPassword) === 'smtp-secret');
+  check(
+    'the IMAP password decrypts at the point of use',
+    decryptSecret(storedAccount.imapPassword!) === 'imap-secret',
+  );
+
+  await prisma.sendingAccount.delete({ where: { id: encryptedAccount.id } });
 
   if (!keep) {
     await cleanup();

@@ -72,6 +72,35 @@ handing the message to SMTP, so a reply that lands mid-job still wins the race.
 The scheduler independently skips those leads, and a halted lead has its
 `nextSendAt` cleared.
 
+## Mailbox credentials
+
+SMTP and IMAP passwords are encrypted at rest with AES-256-GCM under
+`CREDENTIAL_KEY`. The stored value is an envelope,
+`v1:<iv>:<auth tag>:<ciphertext>`, and decryption happens only where the
+password is used: building the SMTP transport, and opening the IMAP connection.
+
+- Saving a sending account **fails** if `CREDENTIAL_KEY` is missing or is not 32
+  bytes, rather than falling back to storing plaintext.
+- GCM authenticates as well as encrypts, so a tampered ciphertext is rejected
+  instead of decoding to garbage.
+- A value without the `v1:` prefix is treated as legacy plaintext and passed
+  through, so an existing install keeps working until it is migrated.
+
+Migrate existing rows with:
+
+```bash
+npm run encrypt:credentials            # report what would change
+npm run encrypt:credentials -- --apply # write the encrypted values
+```
+
+It is safe to re-run, and it decrypts each new value back before saving the row,
+so a wrong key cannot lock a mailbox out of its own password.
+
+Losing `CREDENTIAL_KEY` means re-entering every mailbox password. Back it up
+where you keep other production secrets. Rotating it means decrypting with the
+old key and re-encrypting with the new one; the `v1:` prefix is there to make
+that possible without ambiguity.
+
 ## Unsubscribing
 
 Every lead carries an opaque `unsubscribeToken`, and every outbound message
@@ -212,6 +241,7 @@ a lead cannot receive the same step twice.
 | `APP_URL` | yes | The deployment's own origin. It is baked into tracking pixel URLs, so it must be reachable by recipients. |
 | `REDIS_URL` | workers only | Not read by any page or cron route. Set it wherever the BullMQ workers run. |
 | `CRON_SECRET` | to send | Shared secret for `/api/cron/*`. Generate with `openssl rand -hex 32`. Without it the scheduled routes return 503. |
+| `CREDENTIAL_KEY` | to save a mailbox | Encrypts SMTP and IMAP passwords at rest. Generate with `openssl rand -base64 32`. Losing it means re-entering every mailbox password. |
 
 ### Sharing a database with OUTBOX
 

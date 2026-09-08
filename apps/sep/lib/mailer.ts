@@ -1,6 +1,7 @@
 import nodemailer, { type Transporter } from 'nodemailer';
 import { prisma } from './prisma';
 import type { SendingAccount } from './generated/prisma';
+import { decryptSecret } from './crypto';
 
 export type OutboundMessage = {
   to: string;
@@ -33,7 +34,8 @@ export function getTransport(account: SendingAccount): Transporter {
     host: account.smtpHost,
     port: account.smtpPort,
     secure: account.smtpSecure,
-    auth: { user: account.smtpUser, pass: account.smtpPassword },
+    // Decrypted only here, at the moment of use.
+    auth: { user: account.smtpUser, pass: decryptSecret(account.smtpPassword) },
     pool: true,
     maxConnections: 2,
     maxMessages: 50,

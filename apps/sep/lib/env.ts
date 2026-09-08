@@ -45,6 +45,14 @@ export const env = {
     const schema = fromUrl?.trim() || process.env.DATABASE_SCHEMA?.trim();
     return schema && schema !== 'public' ? schema : undefined;
   },
+  /**
+   * Key encrypting mailbox credentials at rest. Required before a sending
+   * account can be saved, so a password never lands in the database in the
+   * clear. Generate with: openssl rand -base64 32
+   */
+  get credentialKey(): string {
+    return required('CREDENTIAL_KEY');
+  },
   /** Absolute origin used to build tracking-pixel URLs embedded in outbound mail. */
   get appUrl() {
     return (process.env.APP_URL?.trim() || 'http://localhost:3000').replace(/\/+$/, '');

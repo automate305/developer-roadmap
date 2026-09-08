@@ -12,6 +12,7 @@ import { prisma } from './prisma';
 import { EmailStatus, LeadStatus, type SendingAccount } from './generated/prisma';
 import { env } from './env';
 import { isHalted } from './sequence';
+import { decryptSecret } from './crypto';
 
 /** Normalized view of an inbound message, independent of the IMAP client. */
 export type InboundMessage = {
@@ -162,7 +163,8 @@ export async function pollAccount(
     host: account.imapHost!,
     port: account.imapPort ?? 993,
     secure: account.imapSecure,
-    auth: { user: account.imapUser!, pass: account.imapPassword! },
+    // Decrypted only here, at the moment of use.
+    auth: { user: account.imapUser!, pass: decryptSecret(account.imapPassword!) },
     logger: false,
   });
 

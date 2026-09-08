@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { ok, fail, type ActionResult } from '@/lib/errors';
+import { encryptSecret, encryptOptionalSecret } from '@/lib/crypto';
 
 const optionalText = z.string().trim().optional().or(z.literal(''));
 
@@ -48,12 +49,16 @@ export async function createSendingAccount(
 ): Promise<ActionResult<{ id: string }>> {
   try {
     const parsed = readForm(formData);
+
+    // Passwords are encrypted here so a plaintext credential never reaches the
+    // database. Missing CREDENTIAL_KEY fails the save rather than storing raw.
     const account = await prisma.sendingAccount.create({
       data: {
         ...parsed,
+        smtpPassword: encryptSecret(parsed.smtpPassword),
         imapHost: parsed.imapHost || null,
         imapUser: parsed.imapUser || null,
-        imapPassword: parsed.imapPassword || null,
+        imapPassword: encryptOptionalSecret(parsed.imapPassword),
       },
     });
 
