@@ -116,21 +116,31 @@ pass `--keep`.
 
 ## Deploying to Vercel
 
-The Vercel project **a305-sep-web** is linked to `automate305/developer-roadmap`
-with the root directory set to `apps/sep`. Every push to a branch produces a
-preview deployment; pushes to `master` produce production once this app is
-merged there.
+### Automatic deployment is currently off
 
-`vercel.json` sets `ignoreCommand` so a push that changes nothing under
-`apps/sep` is skipped rather than rebuilt — this repository also carries
-unrelated roadmap content and other projects.
+`vercel.json` sets `git.deploymentEnabled: false`. Pushes do not deploy.
 
-That guard cannot help branches that predate this app: Vercel resolves the root
-directory before reading `vercel.json`, so a branch with no `apps/sep` fails the
-build with "The specified Root Directory does not exist". Merging this app to
-`master` makes the directory exist for every branch cut afterwards; older
-branches need a rebase, or a project-level Ignored Build Step in Vercel's
-settings.
+This is deliberate. The Vercel project **a305-sep-web** was linked to the whole
+`automate305/developer-roadmap` repository with root directory `apps/sep`, which
+made it try to build *every* branch pushed to that repository. Branches that do
+not contain `apps/sep` — other projects living in the same repo — failed with
+"The specified Root Directory does not exist", putting red checks on unrelated
+pull requests.
+
+Two guards live here now:
+
+- `git.deploymentEnabled: false` stops this project deploying from any branch
+  that carries this file.
+- `ignoreCommand` skips a build when a push changed nothing under `apps/sep`.
+
+Neither can help a branch with no `apps/sep` at all, because Vercel resolves the
+root directory before it reads `vercel.json`. Ending that requires disconnecting
+the Git repository from the project in Vercel's dashboard (Settings → Git), or
+deleting the project.
+
+To bring deployment back, remove the `git` block — ideally once this app lives
+somewhere it cannot collide with other projects: its own repository, or `master`
+after this merges, so the directory exists on every branch.
 
 Vercel hosts the dashboard, `/api/leads/import`, the tracking pixel at
 `/api/track/open`, and the two scheduled routes that drive sending.
