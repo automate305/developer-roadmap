@@ -97,7 +97,17 @@ export default function DialerDevice({
   const deviceRef = useRef(null);
   const callRef = useRef(null);
   const callTimerRef = useRef(null);
+  const callStartRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
+  const [notes, setNotes] = useState('');
+  // The AMD-phase snippet for whichever leg most recently won — captured off
+  // the SSE feed below, snapshotted onto the call the moment it connects.
+  // This is NOT a live conversation transcript: the Deepgram socket closes
+  // the instant a verdict is reached (see AGENTS.md invariant 6), so nothing
+  // is heard past that point. Best-effort under parallel dial, where more
+  // than one leg can classify HUMAN in close succession — exact under power
+  // dial, the one call at a time case this is mainly for.
+  const preConnectTranscriptRef = useRef('');
 
   // A list handed over from the Lists tab replaces the dial list. `token`
   // changes on every request so re-sending the same list still applies.
@@ -143,12 +153,16 @@ export default function DialerDevice({
         setStatus(AgentStatus.IN_CALL);
         setPendingCall(null);
         setLastEndedCall(null);
+        setNotes('');
         setMuted(call.isMuted());
+        callStartRef.current = Date.now();
         setCallInfo({
           from: call.parameters?.From ?? 'unknown',
           callSid: call.parameters?.CallSid ?? null,
           startedAt: Date.now(),
+          transcript: preConnectTranscriptRef.current,
         });
+        preConnectTranscriptRef.current = '';
         setElapsed(0);
         callTimerRef.current = setInterval(() => setElapsed((seconds) => seconds + 1), 1000);
         pushEvent('success', 'Call connected', call.parameters?.From);
@@ -159,6 +173,8 @@ export default function DialerDevice({
           clearInterval(callTimerRef.current);
           callTimerRef.current = null;
         }
+        const durationSeconds = callStartRef.current ? Math.round((Date.now() - callStartRef.current) / 1000) : 0;
+        callStartRef.current = null;
         callRef.current = null;
         setPendingCall(null);
         setInputLevel(0);
@@ -167,9 +183,11 @@ export default function DialerDevice({
         setStatus((current) => (current === AgentStatus.ERROR ? current : AgentStatus.READY));
         pushEvent('info', label);
         // A connected call is worth asking about; one that never connected
-        // (canceled/rejected before answer) is not.
+        // (canceled/rejected before answer) is not. This fires the same way
+        // whether the agent hung up or the caller did — Twilio's `disconnect`
+        // event doesn't distinguish, and neither does this.
         setCallInfo((info) => {
-          if (info) setLastEndedCall({ from: info.from, endedAt: Date.now() });
+          if (info) setLastEndedCall({ from: info.from, endedAt: Date.now(), durationSeconds, transcript: info.transcript });
           return null;
         });
       };
@@ -323,11 +341,16 @@ export default function DialerDevice({
   const logOutcome = useCallback(
     (outcomeKey) => {
       const label = OUTCOMES.find((o) => o.key === outcomeKey)?.label ?? outcomeKey;
+      const from = status === AgentStatus.IN_CALL ? callInfo?.from : lastEndedCall?.from;
       if (outcomeKey === 'meeting') setMeetingsBooked((n) => n + 1);
-      pushEvent('success', `Logged: ${label}`, lastEndedCall?.from);
-      setLastEndedCall(null);
+      pushEvent('success', `Logged: ${label}`, [from, notes].filter(Boolean).join(' — ') || undefined);
+      // Logging mid-call records the outcome and clears the notes field for
+      // whatever's said next; it does not end the call. Logging after
+      // hangup dismisses the prompt too — there's nothing left to add to.
+      if (status !== AgentStatus.IN_CALL) setLastEndedCall(null);
+      setNotes('');
     },
-    [pushEvent, lastEndedCall],
+    [pushEvent, status, callInfo, lastEndedCall, notes],
   );
 
   // ──────────────────────────────────────────────────── session control ────
@@ -431,6 +454,12 @@ export default function DialerDevice({
           const payload = JSON.parse(message.data);
           const level = name === 'leg:connected' ? 'success' : name === 'leg:ended' ? 'muted' : 'info';
           pushEvent(level, format(payload), payload.transcript || undefined);
+          if (name === 'leg:classified' && payload.classification === 'HUMAN' && payload.won !== false) {
+            // Held until the matching call actually rings this browser (see
+            // `call.on('accept')`), then cleared. Best-effort under parallel
+            // dial — see the ref's own comment for why.
+            preConnectTranscriptRef.current = payload.transcript ?? '';
+          }
           if (name === 'leg:ended' && payload.phone && onLegEnded) {
             onLegEnded({ phone: payload.phone, disposition: payload.disposition ?? 'UNKNOWN', at: Date.now() });
           }
@@ -497,7 +526,7 @@ export default function DialerDevice({
           <h2 className="panel__title">Incoming lead</h2>
           <p className="mono">{pendingCall.parameters?.From ?? 'unknown number'}</p>
           <div className="row">
-            <button type="button" className="btn btn--primary" onClick={acceptCall}>
+            <button type="button" className="btn btn--go" onClick={acceptCall}>
               Answer
             </button>
             <button type="button" className="btn btn--danger" onClick={rejectCall}>
@@ -510,16 +539,7 @@ export default function DialerDevice({
       {inCall && (
         <section className="panel panel--live">
           <h2 className="panel__title">On call</h2>
-          <dl className="facts">
-            <div>
-              <dt>Number</dt>
-              <dd className="mono">{callInfo?.from ?? '—'}</dd>
-            </div>
-            <div>
-              <dt>Duration</dt>
-              <dd className="mono">{formatDuration(elapsed)}</dd>
-            </div>
-          </dl>
+          <p className="mono outcome__number">{callInfo?.from ?? '—'}</p>
 
           <div className="meters">
             <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
@@ -530,39 +550,85 @@ export default function DialerDevice({
             <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
               {muted ? 'Unmute' : 'Mute'}
             </button>
-            <button type="button" className="btn btn--danger" onClick={hangUp}>
+            <button type="button" className="btn btn--stop" onClick={hangUp}>
               End call
             </button>
           </div>
         </section>
       )}
 
-      {lastEndedCall && !inCall && !pendingCall && (
-        <section className="panel panel--outcome">
-          <h2 className="panel__title">How did that go?</h2>
-          <p className="mono outcome__number">{lastEndedCall.from}</p>
-          <div className="row">
-            {OUTCOMES.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                className={`btn ${o.tone === 'good' ? 'btn--primary' : ''}`}
-                onClick={() => logOutcome(o.key)}
-              >
-                {o.label}
-              </button>
-            ))}
-            <button type="button" className="btn btn--ghost" onClick={() => setLastEndedCall(null)}>
-              Skip
-            </button>
-          </div>
-        </section>
-      )}
-
-      {!pendingCall && !inCall && !lastEndedCall && (
+      {!pendingCall && !inCall && (
         <section className="panel panel--idle">
           <h2 className="panel__title">Call</h2>
           <p className="idle__text">{online ? 'Nothing on the line. A connected lead lands here.' : 'Go online to take calls.'}</p>
+        </section>
+      )}
+
+      {/* Visible for the life of a campaign, not just mid-call, so notes
+          taken from the previous call stay reachable while the next one
+          rings. Disposition can be logged mid-call as well as after —
+          nothing about "the meeting's booked" requires hanging up first. */}
+      {session && (
+        <section className="panel panel--notes">
+          <div className="panel__head">
+            <h2 className="panel__title">Call notes</h2>
+            {(inCall || lastEndedCall) && (
+              <span className="mono notes__timer">
+                {inCall ? formatDuration(elapsed) : formatDuration(lastEndedCall.durationSeconds ?? 0)}
+              </span>
+            )}
+          </div>
+
+          {inCall || lastEndedCall ? (
+            <>
+              <p className="mono outcome__number">{(inCall ? callInfo?.from : lastEndedCall?.from) ?? '—'}</p>
+              <textarea
+                className="textarea"
+                rows={3}
+                placeholder="What came up, next steps…"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+              <div className="row">
+                {OUTCOMES.map((o) => (
+                  <button
+                    key={o.key}
+                    type="button"
+                    className={`btn ${o.tone === 'good' ? 'btn--primary' : ''}`}
+                    onClick={() => logOutcome(o.key)}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+                {lastEndedCall && !inCall && (
+                  <button
+                    type="button"
+                    className="btn btn--ghost"
+                    onClick={() => {
+                      setLastEndedCall(null);
+                      setNotes('');
+                    }}
+                  >
+                    Skip
+                  </button>
+                )}
+              </div>
+
+              <div className="transcript">
+                <p className="transcript__label">What we heard before connecting</p>
+                {(inCall ? callInfo?.transcript : lastEndedCall?.transcript) ? (
+                  <p className="transcript__text">{inCall ? callInfo.transcript : lastEndedCall.transcript}</p>
+                ) : (
+                  <p className="transcript__empty">
+                    Nothing captured here. Live in-call transcription isn't wired up yet — this only ever shows the
+                    snippet the classifier heard before the line connected.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <p className="idle__text">Waiting for the next call…</p>
+          )}
         </section>
       )}
 

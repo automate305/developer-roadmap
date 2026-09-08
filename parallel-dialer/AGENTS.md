@@ -84,6 +84,17 @@ shared across agents, that's new backend surface (storage, auth beyond the
 one shared `DIALER_API_KEY`, an endpoint for an agent's outcome) — say so
 rather than quietly wiring a frontend call to an endpoint that isn't there.
 
+**The Campaigns tab's "Call notes" card has a transcript section that is not
+a live transcript.** It shows `preConnectTranscriptRef` — whatever Deepgram
+heard during AMD classification, snapshotted onto the call the moment it
+connects. The Deepgram socket is closed the instant a verdict is reached
+(invariant 6 above), before the human conversation even starts, so nothing
+from the actual call is ever captured. The empty-state copy in
+`DialerDevice.jsx` says this outright — keep it that way if you touch that
+card. Wiring real in-call transcription means keeping a media stream open
+past the bridge (or forking the `<Dial>` leg's audio too), which is new
+backend work, not a frontend fix.
+
 ## Changing AMD behaviour
 
 `amdConfigFingerprint()` in `src/backend/classificationAudit.js` hashes the live

@@ -242,15 +242,24 @@ this to the internet.
 
 ## Theme
 
-The workstation uses the OUTBOX palette (`outbox.automate305.com`), so the dialer
-reads as part of the same product. The eleven brand values are lifted verbatim,
-along with the signature treatments: gradient glass panels, the purple gradient
-primary button, and the light frosted fields on a dark shell.
+The workstation is light — white cards on a soft lavender ground — with OUTBOX's
+five accent hues (purple/green/amber/red/blue) preserved exactly. The "OUTBOX
+verbatim" dark-glass look this shipped with originally is gone; what's kept is
+the accent palette and the two signature moves it's known for: a gradient
+purple primary button, and fields visually distinct from the panel they sit in
+(lavender-tinted, where OUTBOX itself used a light-on-dark version of the same
+idea). The purple glow OUTBOX got for free from a near-black backdrop is now
+`--panel-shadow` — a soft purple halo cast under every white card.
 
 Every colour in `src/frontend/styles.css` resolves to a token in the `:root`
-block, so re-skinning means replacing that block and nothing else. Purple is the
-primary action, which is why the in-call state uses OUTBOX's blue rather than its
-purple: the two need to stay apart at a glance.
+block, so re-skinning means replacing that block and nothing else — the block's
+own comment explains what's fixed (the five accent hues) versus what's
+recomputed for contrast on the current background. Purple is the primary
+action, which is why the in-call state uses blue rather than purple: the two
+need to stay apart at a glance. Answer and End call use a green-to-red pair of
+their own (`.btn--go` / `.btn--stop`), distinct from both — picking up and
+hanging up are the one place in the UI where a phone's own decades-old color
+convention should win over the product's.
 
 ## Tests
 
