@@ -69,10 +69,10 @@ export function clientKey(request: Request, prefix: string): string {
 /**
  * True when the request came from this deployment's own pages.
  *
- * The app has no user authentication of its own, so this is not a security
- * boundary — a direct client can set any Origin it likes. It stops a page on
- * another site from posting here on a visitor's behalf, which is the realistic
- * abuse for a browser-called endpoint.
+ * This is not the security boundary — a direct client can set any Origin it
+ * likes, and signing in is what actually gates these routes. It stops a page on
+ * another site from posting here on a signed-in visitor's behalf, which is the
+ * realistic abuse for a browser-called endpoint.
  */
 export function isSameOrigin(request: Request): boolean {
   const origin = request.headers.get('origin');

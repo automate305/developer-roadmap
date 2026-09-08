@@ -22,6 +22,8 @@ import { advanceLead, completeCampaignIfDrained, isHalted, addDays } from './seq
 import { releaseDailySend, reserveDailySend, smtpSender, type MailSender } from './mailer';
 import { classifySmtpError, isSuppressed, recordSoftBounce, suppressAddress } from './bounce';
 import { isWithinWindow, nextWindowOpen, withJitter } from './schedule';
+import { frequencyVerdict, loadFrequencyPolicy } from './frequency';
+import type { PlatformSettings } from './settings';
 import { SuppressionReason } from './generated/prisma';
 
 /** One scheduled sequence step for one lead. */
@@ -42,10 +44,17 @@ export type SendDeps = {
   sendMail: MailSender;
   now: () => Date;
   appUrl: string;
+  /** Per-contact frequency policy. Injectable so a test need not write settings. */
+  frequencyPolicy: () => Promise<PlatformSettings>;
 };
 
 function defaultDeps(): SendDeps {
-  return { sendMail: smtpSender, now: () => new Date(), appUrl: env.appUrl };
+  return {
+    sendMail: smtpSender,
+    now: () => new Date(),
+    appUrl: env.appUrl,
+    frequencyPolicy: loadFrequencyPolicy,
+  };
 }
 
 export async function processSendJob(
@@ -102,6 +111,19 @@ export async function processSendJob(
 
   const account = lead.campaign.sendingAccount;
   if (!account) return { status: 'skipped', reason: 'no_sending_account' };
+
+  // How often this person hears from us, counted across every campaign they
+  // appear in — not just this one. A lead on two lists must not receive both
+  // sequences in parallel.
+  const frequency = await frequencyVerdict(lead.email, now, await deps.frequencyPolicy());
+  if (!frequency.allowed) {
+    await prisma.lead.update({ where: { id: lead.id }, data: { nextSendAt: frequency.retryAt } });
+    return {
+      status: 'deferred',
+      reason: 'contact_frequency_cap',
+      retryAt: frequency.retryAt,
+    };
+  }
 
   // The mailbox only sends inside its own working hours. A lead that comes due
   // outside them is pushed to the next opening rather than sent at 3am.

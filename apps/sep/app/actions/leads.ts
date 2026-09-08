@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { LeadStatus } from '@/lib/generated/prisma';
+import { requireUser } from '@/lib/auth';
 import { ok, fail, type ActionResult } from '@/lib/errors';
 import { scheduleCampaignLeads } from '@/lib/sequence';
 
@@ -19,6 +20,9 @@ export async function createLead(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    // Server actions are their own HTTP request: the layout's check does not
+    // cover them, so each one authenticates for itself.
+    await requireUser();
     const parsed = leadInput.parse({
       email: formData.get('email') ?? '',
       firstName: formData.get('firstName') ?? '',
@@ -54,6 +58,7 @@ export async function createLead(
 
 export async function setLeadStatus(id: string, status: LeadStatus): Promise<ActionResult> {
   try {
+    await requireUser();
     const now = new Date();
     const lead = await prisma.lead.update({
       where: { id },
@@ -76,6 +81,7 @@ export async function setLeadStatus(id: string, status: LeadStatus): Promise<Act
 
 export async function deleteLead(id: string): Promise<ActionResult> {
   try {
+    await requireUser();
     const lead = await prisma.lead.delete({ where: { id } });
     revalidatePath(`/campaigns/${lead.campaignId}`);
     return ok();
@@ -84,7 +90,9 @@ export async function deleteLead(id: string): Promise<ActionResult> {
   }
 }
 
-export async function scheduleCampaignLeadsIfActive(campaignId: string): Promise<number> {
+/** Internal helper — deliberately not exported: every export of a 'use server'
+ * module becomes a callable endpoint, and this one needs no caller outside. */
+async function scheduleCampaignLeadsIfActive(campaignId: string): Promise<number> {
   const campaign = await prisma.campaign.findUnique({
     where: { id: campaignId },
     select: { status: true },

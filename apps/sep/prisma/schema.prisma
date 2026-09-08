@@ -5,6 +5,8 @@
 //              ├─* Lead           (recipients, status-gated)
 //              └─* EmailLog       (one row per dispatched send)
 //   SendingAccount 1─* Campaign / EmailLog (SMTP + IMAP mailbox, daily cap)
+//   User 1─* Session                (operator log-in)
+//   Setting                        (single row: platform-wide sending policy)
 
 generator client {
   provider = "prisma-client-js"
@@ -216,6 +218,60 @@ model EmailLog {
   @@index([campaignId, status])
   @@index([leadId])
   @@index([sentAt])
+}
+
+/// A human who can sign in and operate the platform. There is no public sign-up:
+/// the first account is created on an empty install, and further accounts are
+/// added by someone already signed in.
+model User {
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
+
+  /// scrypt digest in a versioned envelope. Never the password itself.
+  passwordHash String
+  isActive     Boolean @default(true)
+
+  lastLoginAt DateTime?
+  sessions    Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// One signed-in browser. The cookie carries a random token; only its SHA-256
+/// digest is stored here, so a leaked database does not hand over live sessions.
+model Session {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Single-row table for policy that spans every campaign and mailbox. Anything
+/// belonging to one mailbox lives on SendingAccount instead.
+model Setting {
+  id String @id @default("singleton")
+
+  /// Most emails one person may receive across all campaigns within the window
+  /// below. Zero switches the cap off.
+  maxEmailsPerContact Int @default(2)
+  /// Length of that window, in days.
+  contactWindowDays   Int @default(30)
+
+  updatedAt DateTime @updatedAt
 }
 
 /// Addresses that must never be emailed again, keyed on the address rather than

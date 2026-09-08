@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/auth';
 import { ok, fail, type ActionResult } from '@/lib/errors';
 
 const stepInput = z.object({
@@ -16,6 +17,9 @@ export async function createStep(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    // Server actions are their own HTTP request: the layout's check does not
+    // cover them, so each one authenticates for itself.
+    await requireUser();
     const parsed = stepInput.parse({
       subject: formData.get('subject') ?? '',
       body: formData.get('body') ?? '',
@@ -47,6 +51,7 @@ export async function createStep(
 
 export async function updateStep(id: string, formData: FormData): Promise<ActionResult> {
   try {
+    await requireUser();
     const parsed = stepInput.parse({
       subject: formData.get('subject') ?? '',
       body: formData.get('body') ?? '',
@@ -67,6 +72,7 @@ export async function updateStep(id: string, formData: FormData): Promise<Action
 
 export async function deleteStep(id: string): Promise<ActionResult> {
   try {
+    await requireUser();
     const step = await prisma.sequenceStep.delete({ where: { id } });
     await renumber(step.campaignId);
     revalidatePath(`/campaigns/${step.campaignId}`);
@@ -82,6 +88,7 @@ export async function deleteStep(id: string): Promise<ActionResult> {
  */
 export async function moveStep(id: string, direction: 'up' | 'down'): Promise<ActionResult> {
   try {
+    await requireUser();
     const step = await prisma.sequenceStep.findUnique({ where: { id } });
     if (!step) throw new Error('Step not found.');
 

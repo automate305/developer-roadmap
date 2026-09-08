@@ -12,6 +12,8 @@
  *   2. The tracking pixel route returns a no-store GIF and records the open.
  *   3. An inbound reply flips the lead to REPLIED and clears its schedule.
  *   4. The execution guard refuses every remaining step for that lead.
+ *   5. One contact is not emailed past the cap by two campaigns at once.
+ *   6. Passwords are stored as scrypt digests and sessions expire.
  */
 import { prisma } from '../lib/prisma';
 import { CampaignStatus, EmailStatus, LeadStatus } from '../lib/generated/prisma';
@@ -31,6 +33,10 @@ import {
 import { SuppressionReason } from '../lib/generated/prisma';
 import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
 import { checkRateLimit, isSameOrigin } from '../lib/rate-limit';
+import { frequencyVerdict, contactsInWindow } from '../lib/frequency';
+import { hashPassword, verifyPassword, passwordProblem } from '../lib/password';
+import { purgeExpiredSessions } from '../lib/session-store';
+import { createHash, randomBytes } from 'node:crypto';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import { reserveDailySend, type MailSender, type OutboundMessage } from '../lib/mailer';
 
@@ -54,6 +60,13 @@ function section(title: string) {
   console.log(`\n${title}`);
 }
 
+/**
+ * Frequency policy for the sections that are not about frequency. They assert
+ * exact send counts and timings written before the per-contact cap existed, so
+ * they run with it off; section 13 turns it on and tests it on its own leads.
+ */
+const noCap = async () => ({ maxEmailsPerContact: 0, contactWindowDays: 30 });
+
 /** Captures outbound mail instead of touching SMTP. */
 const sentMessages: OutboundMessage[] = [];
 const fakeSender: MailSender = async (_account, message) => {
@@ -64,6 +77,8 @@ const fakeSender: MailSender = async (_account, message) => {
 async function cleanup() {
   await prisma.campaign.deleteMany({ where: { name: { startsWith: TAG } } });
   await prisma.sendingAccount.deleteMany({ where: { name: { startsWith: TAG } } });
+  // Sessions cascade from the user.
+  await prisma.user.deleteMany({ where: { email: { endsWith: '@sim-operator.test' } } });
 }
 
 async function main() {
@@ -156,7 +171,7 @@ async function main() {
 
   const firstSend = await processSendJob(
     { leadId: lead.id, campaignId: campaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
 
   check('step 1 reported as sent', firstSend.status === 'sent', JSON.stringify(firstSend));
@@ -281,7 +296,7 @@ async function main() {
 
   const secondSend = await processSendJob(
     { leadId: lead.id, campaignId: campaign.id, stepOrder: 2 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check('step 2 was skipped', secondSend.status === 'skipped', JSON.stringify(secondSend));
   check(
@@ -292,7 +307,7 @@ async function main() {
 
   const thirdSend = await processSendJob(
     { leadId: lead.id, campaignId: campaign.id, stepOrder: 3 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check('step 3 was skipped', thirdSend.status === 'skipped', JSON.stringify(thirdSend));
 
@@ -324,7 +339,7 @@ async function main() {
 
   const optOutSend = await processSendJob(
     { leadId: optedOut.id, campaignId: campaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check(
     'opted-out lead is skipped',
@@ -352,7 +367,7 @@ async function main() {
   try {
     await processSendJob(
       { leadId: retryLead.id, campaignId: campaign.id, stepOrder: 1 },
-      { sendMail: failingSender, appUrl: APP_URL },
+      { sendMail: failingSender, appUrl: APP_URL, frequencyPolicy: noCap },
     );
   } catch {
     threw = true;
@@ -374,7 +389,7 @@ async function main() {
 
   const retrySend = await processSendJob(
     { leadId: retryLead.id, campaignId: campaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check('the retry sends', retrySend.status === 'sent', JSON.stringify(retrySend));
 
@@ -397,7 +412,7 @@ async function main() {
 
   const beforeOptOut = await processSendJob(
     { leadId: unsubLead.id, campaignId: campaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check('the lead receives step 1 first', beforeOptOut.status === 'sent', JSON.stringify(beforeOptOut));
 
@@ -427,7 +442,7 @@ async function main() {
   const messagesBeforeGuard = sentMessages.length;
   const afterOptOut = await processSendJob(
     { leadId: unsubLead.id, campaignId: campaign.id, stepOrder: 2 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check(
     'step 2 is refused after the opt-out',
@@ -627,7 +642,7 @@ async function main() {
   const messagesBeforeBounceGuard = sentMessages.length;
   const bouncedSend = await processSendJob(
     { leadId: bouncingA.id, campaignId: campaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check(
     'sending to a bounced lead is refused',
@@ -644,7 +659,7 @@ async function main() {
   });
   const freshSend = await processSendJob(
     { leadId: bouncingB.id, campaignId: otherCampaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL },
+    { sendMail: fakeSender, appUrl: APP_URL, frequencyPolicy: noCap },
   );
   check(
     're-importing a suppressed address does not revive it',
@@ -774,7 +789,7 @@ async function main() {
   const outsideWindow = new Date('2026-09-09T04:00:00Z');
   const windowOutcome = await processSendJob(
     { leadId: nightLead.id, campaignId: nightCampaign.id, stepOrder: 1 },
-    { sendMail: fakeSender, appUrl: APP_URL, now: () => outsideWindow },
+    { sendMail: fakeSender, appUrl: APP_URL, now: () => outsideWindow, frequencyPolicy: noCap },
   );
   check(
     'a lead due outside the window is deferred',
@@ -966,6 +981,203 @@ async function main() {
         headers: { origin: 'https://evil.test', host: 'sim.local' },
       }),
     ),
+  );
+
+  // ------------------------------------------- per-contact frequency cap ---
+  section('13. One person is not emailed twice over by two campaigns');
+
+  const capAccount = await prisma.sendingAccount.create({
+    data: {
+      name: `${TAG} cap mailbox`,
+      fromName: 'Cam (simulation)',
+      fromEmail: `sim-cap-${Date.now()}@automate305.test`,
+      smtpHost: 'smtp.invalid',
+      smtpPort: 587,
+      smtpUser: 'sim',
+      smtpPassword: 'sim',
+      maxDaily: 100,
+      sendDays: [1, 2, 3, 4, 5, 6, 7],
+      sendWindowStartHour: 0,
+      sendWindowEndHour: 23,
+      jitterMinutes: 0,
+    },
+  });
+
+  // The same human on two lists — an HVAC list and a restoration list — which is
+  // exactly the case per-mailbox caps cannot see.
+  const sharedAddress = `owner-${Date.now()}@sim-shared.test`;
+
+  async function capCampaign(label: string) {
+    return prisma.campaign.create({
+      data: {
+        name: `${TAG} ${label}`,
+        status: CampaignStatus.ACTIVE,
+        sendingAccountId: capAccount.id,
+        steps: {
+          create: [
+            { stepOrder: 1, delayDays: 0, subject: `${label} 1`, body: 'One.' },
+            { stepOrder: 2, delayDays: 0, subject: `${label} 2`, body: 'Two.' },
+          ],
+        },
+        leads: { create: [{ email: sharedAddress, firstName: 'Sam', company: 'Shared Co' }] },
+      },
+      include: { leads: true },
+    });
+  }
+
+  const hvacList = await capCampaign('hvac list');
+  const stormList = await capCampaign('storm list');
+
+  // Two per rolling 30 days, the default this ships with.
+  const twoPerMonth = async () => ({ maxEmailsPerContact: 2, contactWindowDays: 30 });
+  const capBase = new Date('2026-03-10T15:00:00.000Z');
+
+  const capFirst = await processSendJob(
+    { leadId: hvacList.leads[0].id, campaignId: hvacList.id, stepOrder: 1 },
+    { sendMail: fakeSender, appUrl: APP_URL, now: () => capBase, frequencyPolicy: twoPerMonth },
+  );
+  check('the first email to a new contact sends', capFirst.status === 'sent', JSON.stringify(capFirst));
+
+  const capSecond = await processSendJob(
+    { leadId: hvacList.leads[0].id, campaignId: hvacList.id, stepOrder: 2 },
+    {
+      sendMail: fakeSender,
+      appUrl: APP_URL,
+      now: () => new Date(capBase.getTime() + 60_000),
+      frequencyPolicy: twoPerMonth,
+    },
+  );
+  check('the second reaches the cap but still sends', capSecond.status === 'sent', JSON.stringify(capSecond));
+
+  // The third attempt comes from the *other* campaign, which is the point: a
+  // per-mailbox cap would wave this through.
+  const capThird = await processSendJob(
+    { leadId: stormList.leads[0].id, campaignId: stormList.id, stepOrder: 1 },
+    {
+      sendMail: fakeSender,
+      appUrl: APP_URL,
+      now: () => new Date(capBase.getTime() + 120_000),
+      frequencyPolicy: twoPerMonth,
+    },
+  );
+  check(
+    'a third email from another campaign is held',
+    capThird.status === 'deferred' && capThird.reason === 'contact_frequency_cap',
+    JSON.stringify(capThird),
+  );
+
+  const heldLead = await prisma.lead.findUniqueOrThrow({ where: { id: stormList.leads[0].id } });
+  check('the held lead keeps its place in the sequence', heldLead.currentStep === 0);
+  check('it is rescheduled rather than dropped', Boolean(heldLead.nextSendAt));
+  check(
+    'it is rescheduled for after the oldest email ages out',
+    heldLead.nextSendAt !== null &&
+      heldLead.nextSendAt.getTime() > capBase.getTime() + 29 * 24 * 60 * 60 * 1000,
+    String(heldLead.nextSendAt),
+  );
+
+  const heldLogs = await prisma.emailLog.count({ where: { leadId: stormList.leads[0].id } });
+  check('no log row was written for the held send', heldLogs === 0, String(heldLogs));
+
+  // Once the window has rolled past those two sends, the same lead goes out.
+  const afterWindowRolls = new Date(capBase.getTime() + 31 * 24 * 60 * 60 * 1000);
+  const capLater = await processSendJob(
+    { leadId: stormList.leads[0].id, campaignId: stormList.id, stepOrder: 1 },
+    {
+      sendMail: fakeSender,
+      appUrl: APP_URL,
+      now: () => afterWindowRolls,
+      frequencyPolicy: twoPerMonth,
+    },
+  );
+  check(
+    'it sends once the window has rolled past the earlier two',
+    capLater.status === 'sent',
+    JSON.stringify(capLater),
+  );
+
+  const verdictOff = await frequencyVerdict(sharedAddress, afterWindowRolls, {
+    maxEmailsPerContact: 0,
+    contactWindowDays: 30,
+  });
+  check('a cap of zero switches the check off', verdictOff.allowed);
+
+  const inWindow = await contactsInWindow(sharedAddress, afterWindowRolls, 60);
+  check('the window count sees all three sends', inWindow === 3, String(inWindow));
+
+  await prisma.campaign.deleteMany({ where: { id: { in: [hvacList.id, stormList.id] } } });
+  await prisma.sendingAccount.delete({ where: { id: capAccount.id } });
+
+  // ------------------------------------------------------ operator log-in ---
+  section('14. Operators sign in, and sessions expire');
+
+  const operatorPassword = 'correct horse battery staple';
+  const digest = await hashPassword(operatorPassword);
+  check('a stored password does not contain the password', !digest.includes(operatorPassword));
+  check('it carries a version prefix', digest.startsWith('s1:'), digest.slice(0, 3));
+  check('the right password verifies', await verifyPassword(operatorPassword, digest));
+  check('a wrong password does not', !(await verifyPassword(operatorPassword + 'x', digest)));
+  check('a second hash of the same password differs', (await hashPassword(operatorPassword)) !== digest);
+  check(
+    'a malformed stored hash is rejected, not thrown',
+    !(await verifyPassword(operatorPassword, 'nonsense')),
+  );
+  check('a short password is refused', passwordProblem('short') !== null);
+  check('a long enough one is accepted', passwordProblem(operatorPassword) === null);
+
+  const operator = await prisma.user.create({
+    data: {
+      email: `cam-${Date.now()}@sim-operator.test`,
+      name: 'Cam',
+      passwordHash: digest,
+    },
+  });
+
+  const liveToken = randomBytes(32).toString('base64url');
+  const staleToken = randomBytes(32).toString('base64url');
+  const sha = (value: string) => createHash('sha256').update(value).digest('hex');
+
+  await prisma.session.create({
+    data: {
+      tokenHash: sha(liveToken),
+      userId: operator.id,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+    },
+  });
+  await prisma.session.create({
+    data: {
+      tokenHash: sha(staleToken),
+      userId: operator.id,
+      expiresAt: new Date(Date.now() - 60 * 1000),
+    },
+  });
+
+  const storedSession = await prisma.session.findUnique({ where: { tokenHash: sha(liveToken) } });
+  check('a session is found by the hash of its token', Boolean(storedSession));
+  check(
+    'the raw token is nowhere in the row',
+    storedSession !== null && !JSON.stringify(storedSession).includes(liveToken),
+  );
+  check(
+    'a token that was never issued matches nothing',
+    (await prisma.session.findUnique({ where: { tokenHash: sha('made up') } })) === null,
+  );
+
+  const purged = await purgeExpiredSessions();
+  check('expired sessions are purged', purged >= 1, String(purged));
+  check(
+    'the live session survives the purge',
+    (await prisma.session.findUnique({ where: { tokenHash: sha(liveToken) } })) !== null,
+  );
+  check(
+    'the expired one is gone',
+    (await prisma.session.findUnique({ where: { tokenHash: sha(staleToken) } })) === null,
+  );
+
+  await prisma.user.delete({ where: { id: operator.id } });
+  check(
+    'deleting the account takes its sessions with it',
+    (await prisma.session.count({ where: { userId: operator.id } })) === 0,
   );
 
   if (!keep) {

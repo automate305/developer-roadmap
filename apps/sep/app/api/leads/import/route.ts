@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { toMessage } from '@/lib/errors';
+import { currentUser } from '@/lib/auth';
 import { scheduleCampaignLeads } from '@/lib/sequence';
 import { checkRateLimit, clientKey, isSameOrigin } from '@/lib/rate-limit';
 
@@ -45,8 +46,12 @@ function clean(value: string | null | undefined): string | null {
 export async function POST(request: Request) {
   // This endpoint writes the addresses the platform will email, so an open one
   // is a way to make someone else's mailbox send to a list of your choosing.
-  // The app has no user authentication of its own yet — see the README — so
-  // these two checks are the floor, not the ceiling.
+  // Signing in is the boundary; the origin check and the rate limit below sit
+  // behind it, against a signed-in browser being driven from another page.
+  if (!(await currentUser())) {
+    return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
+  }
+
   if (!isSameOrigin(request)) {
     return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 });
   }

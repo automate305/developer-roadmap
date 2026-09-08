@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { CampaignStatus } from '@/lib/generated/prisma';
+import { requireUser } from '@/lib/auth';
 import { ok, fail, type ActionResult } from '@/lib/errors';
 import { scheduleCampaignLeads, unscheduleCampaignLeads } from '@/lib/sequence';
 
@@ -15,6 +16,9 @@ const campaignInput = z.object({
 
 export async function createCampaign(formData: FormData): Promise<ActionResult<{ id: string }>> {
   try {
+    // Server actions are their own HTTP request: the layout's check does not
+    // cover them, so each one authenticates for itself.
+    await requireUser();
     const parsed = campaignInput.parse({
       name: formData.get('name') ?? '',
       description: formData.get('description') ?? '',
@@ -42,6 +46,7 @@ export async function updateCampaign(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    await requireUser();
     const parsed = campaignInput.parse({
       name: formData.get('name') ?? '',
       description: formData.get('description') ?? '',
@@ -74,6 +79,7 @@ export async function setCampaignStatus(
   status: CampaignStatus,
 ): Promise<ActionResult<{ status: CampaignStatus }>> {
   try {
+    await requireUser();
     const campaign = await prisma.campaign.findUnique({
       where: { id },
       include: { _count: { select: { steps: true, leads: true } } },
@@ -108,6 +114,7 @@ export async function setCampaignStatus(
 
 export async function deleteCampaign(id: string): Promise<ActionResult> {
   try {
+    await requireUser();
     await prisma.campaign.delete({ where: { id } });
     revalidatePath('/campaigns');
     revalidatePath('/');

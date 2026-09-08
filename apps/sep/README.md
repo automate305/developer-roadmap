@@ -26,6 +26,9 @@ Campaign ──┬── SequenceStep   (stepOrder, delayDays, subject/body with
            └── EmailLog       (SENT / OPENED / BOUNCED / FAILED, openedAt, sentAt)
 
 SendingAccount ── Campaign    (SMTP + IMAP credentials, maxDaily cap)
+
+User ── Session               (operator log-in; only the token digest is stored)
+Setting                       (single row: per-contact frequency cap)
 ```
 
 `prisma/schema.prisma` is the source of truth. Prisma 7 no longer reads the
@@ -44,6 +47,9 @@ npx prisma db seed            # optional demo campaign
 npm run dev                   # app on http://localhost:3000
 npm run workers               # sender + scheduler + IMAP poller
 ```
+
+The first visit to `http://localhost:3000` redirects to `/login`, which offers
+to create the first account. After that the page only signs people in.
 
 `APP_URL` must be the origin recipients can reach, because it is baked into the
 tracking pixel URL inside every outbound email.
@@ -101,35 +107,80 @@ where you keep other production secrets. Rotating it means decrypting with the
 old key and re-encrypting with the new one; the `v1:` prefix is there to make
 that possible without ambiguity.
 
-## Access control — read this before exposing the app
+## Access control
 
-**The app has no user authentication of its own.** Anyone who can reach a page
-can read every lead and create campaigns. Today that is survivable only because
-the Vercel project has Vercel Authentication switched on, which covers pages and
-API routes alike. Note that the protection is configured as
-`all_except_custom_domains`: **attaching a custom domain would expose everything**
-until real authentication exists. Adding it is the largest outstanding piece of
-work on this app.
+Every page and every server action requires a signed-in operator. On an empty
+install, `/login` offers to create the first account; once one exists that page
+only signs people in, and further accounts are added from **Settings** by
+someone already signed in. There is no public sign-up and no password-reset
+email — set a colleague's password with them present and let them change it.
 
-Three routes are unauthenticated by necessity, since recipients and mail clients
-call them without credentials:
+How it is enforced, in three layers:
+
+| Layer | What it does |
+| --- | --- |
+| `proxy.ts` | Redirects a request with no session cookie before a page renders. Runs on the edge, so it cannot reach the database — this is a fast path, **not** the boundary. |
+| `app/(app)/layout.tsx` | Resolves the cookie against the `Session` table on every page load. A forged or expired cookie gets past the proxy and is rejected here. |
+| `requireUser()` in every server action | A server action is its own HTTP request; a layout never runs for it. Each action in `app/actions/` authenticates for itself, and `/api/leads/import` does the same. |
+
+Passwords are stored as scrypt digests in a versioned `s1:<salt>:<digest>`
+envelope — Node's own crypto, so there is no native dependency to compile on a
+deploy target. Sessions are a random 32-byte token in an httpOnly, SameSite=Lax
+cookie; only the SHA-256 digest of that token is stored, so a database dump
+yields nothing anyone can sign in with. They last 30 days. Changing a password
+deletes every session for that account.
+
+A wrong password and an unknown address return the same message and take the
+same time to answer, so the form cannot be used to find out who has an account.
+Sign-in attempts are limited to ten per address per five minutes.
+
+Vercel Authentication can now be switched off, and a custom domain attached,
+without exposing the app.
+
+### Routes that stay open, by necessity
+
+Recipients and mail clients call these without credentials:
 
 | Route | Guard |
 | --- | --- |
 | `/api/track/open` | 300 requests per minute per client. A throttled request still returns a valid pixel — a broken image would advertise that the message is tracked. |
 | `/api/unsubscribe` | 20 per minute per client, so the token space cannot be probed. |
 | `/unsubscribe/<token>` | Viewing never opts anyone out; only a POST does. |
+| `/api/cron/*` | `Authorization: Bearer $CRON_SECRET`, compared in constant time. Returns 503 rather than standing open when no secret is set. |
 
-`/api/leads/import` decides which addresses this platform will email, so an open
-one is a way to make someone else's mailbox send to a list of an attacker's
-choosing. It rejects cross-origin requests and allows ten calls a minute per
-client. Neither check is a substitute for authentication: a direct client can
-set any `Origin` header it likes.
+`/api/leads/import` decides which addresses this platform will email, so it
+requires a session. Behind that it also rejects cross-origin requests and allows
+ten calls a minute per client — those guard a signed-in browser being driven
+from another page, they are not the boundary themselves.
 
 Rate-limit counters live in process memory, so on a serverless platform the
 limit is per instance rather than global. That is enough for casual abuse and
 runaway loops, not a distributed attacker. `lib/rate-limit.ts` is deliberately
 narrow so the store can move to Redis in one file.
+
+## How often one person hears from you
+
+Daily caps are per mailbox: they limit how hard a sending domain is pushed. The
+per-contact cap is the other kind of limit — how often a single human is
+contacted, counted across **every** campaign they appear in.
+
+Without it, a prospect who lands on two lists receives both sequences in
+parallel and experiences that as spam, whatever the per-mailbox numbers say.
+This matters most for the people you actually know: a restoration contact on
+both an HVAC list and a storm-season list should not hear from you twice in a
+week.
+
+Set it under **Settings**. It ships at **2 emails per person per 30 days**,
+rolling rather than calendar. Zero switches it off.
+
+A lead over the cap is **held, not dropped**: `processSendJob` reschedules it
+for just after the oldest counted email falls outside the window, so it goes out
+on its own once there is room. Nothing is logged for a held send, and the lead
+keeps its place in the sequence. Only delivered mail counts — a `FAILED` row is
+a message that never arrived, so it is not held against the recipient.
+
+The idea is Mautic's `FrequencyRule`; the implementation is ours and counts
+against the `EmailLog` rows the platform already writes.
 
 ## Seeing what is happening
 
@@ -342,6 +393,9 @@ a lead cannot receive the same step twice.
 | `REDIS_URL` | workers only | Not read by any page or cron route. Set it wherever the BullMQ workers run. |
 | `CRON_SECRET` | to send | Shared secret for `/api/cron/*`. Generate with `openssl rand -hex 32`. Without it the scheduled routes return 503. |
 | `CREDENTIAL_KEY` | to save a mailbox | Encrypts SMTP and IMAP passwords at rest. Generate with `openssl rand -base64 32`. Losing it means re-entering every mailbox password. |
+
+Signing in needs no variable of its own: sessions live in the database, so there
+is no shared secret to configure or rotate.
 
 ### Sharing a database with OUTBOX
 

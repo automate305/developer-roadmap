@@ -3,15 +3,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { SignOutButton } from '@/components/account-forms';
+import type { SessionUser } from '@/lib/auth';
 
 const LINKS = [
   { href: '/', label: 'Dashboard' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/accounts', label: 'Sending Accounts' },
   { href: '/suppressions', label: 'Blocked' },
+  { href: '/settings', label: 'Settings' },
 ];
 
-export function AppNav() {
+export function AppNav({ user }: { user: SessionUser }) {
   const pathname = usePathname();
 
   return (
@@ -43,6 +46,13 @@ export function AppNav() {
             );
           })}
         </nav>
+
+        <div className="ml-auto flex items-center gap-3">
+          <span className="hidden text-xs text-ink-faint sm:inline" title={user.email}>
+            {user.name ?? user.email}
+          </span>
+          <SignOutButton />
+        </div>
       </div>
     </header>
   );

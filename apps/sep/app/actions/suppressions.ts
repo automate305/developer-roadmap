@@ -4,10 +4,14 @@ import { revalidatePath } from 'next/cache';
 import { prisma } from '@/lib/prisma';
 import { unsuppressAddress } from '@/lib/bounce';
 import { SuppressionReason } from '@/lib/generated/prisma';
+import { requireUser } from '@/lib/auth';
 import { ok, fail, type ActionResult } from '@/lib/errors';
 
 export async function liftSuppression(email: string): Promise<ActionResult> {
   try {
+    // Server actions are their own HTTP request: the layout's check does not
+    // cover them, so each one authenticates for itself.
+    await requireUser();
     const lifted = await unsuppressAddress(email);
     if (!lifted) throw new Error('That address is no longer on the list.');
 
@@ -21,6 +25,7 @@ export async function liftSuppression(email: string): Promise<ActionResult> {
 
 export async function blockAddress(formData: FormData): Promise<ActionResult> {
   try {
+    await requireUser();
     const email = String(formData.get('email') ?? '')
       .trim()
       .toLowerCase();

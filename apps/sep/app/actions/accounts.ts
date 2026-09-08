@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { requireUser } from '@/lib/auth';
 import { ok, fail, type ActionResult } from '@/lib/errors';
 import { encryptSecret, encryptOptionalSecret } from '@/lib/crypto';
 
@@ -65,6 +66,9 @@ export async function createSendingAccount(
   formData: FormData,
 ): Promise<ActionResult<{ id: string }>> {
   try {
+    // Server actions are their own HTTP request: the layout's check does not
+    // cover them, so each one authenticates for itself.
+    await requireUser();
     const parsed = readForm(formData);
 
     // Passwords are encrypted here so a plaintext credential never reaches the
@@ -90,6 +94,7 @@ export async function createSendingAccount(
 
 export async function toggleSendingAccount(id: string): Promise<ActionResult> {
   try {
+    await requireUser();
     const account = await prisma.sendingAccount.findUnique({ where: { id } });
     if (!account) throw new Error('Sending account not found.');
 
@@ -107,6 +112,7 @@ export async function toggleSendingAccount(id: string): Promise<ActionResult> {
 
 export async function deleteSendingAccount(id: string): Promise<ActionResult> {
   try {
+    await requireUser();
     await prisma.sendingAccount.delete({ where: { id } });
     revalidatePath('/accounts');
     return ok();
