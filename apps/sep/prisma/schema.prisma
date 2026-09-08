@@ -1,0 +1,292 @@
+// Automate305 Sales Engagement Platform — data model.
+//
+// Entity hierarchy:
+//   Campaign 1─┬─* SequenceStep   (ordered steps, delayDays apart)
+//              ├─* Lead           (recipients, status-gated)
+//              └─* EmailLog       (one row per dispatched send)
+//   SendingAccount 1─* Campaign / EmailLog (SMTP + IMAP mailbox, daily cap)
+//   User 1─* Session                (operator log-in)
+//   Setting                        (single row: platform-wide sending policy)
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../lib/generated/prisma"
+}
+
+// Prisma 7 moved connection URLs out of the schema: migrations read the URL from
+// prisma.config.ts, and the runtime client is constructed with a driver adapter
+// (see lib/prisma.ts).
+datasource db {
+  provider = "postgresql"
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum LeadStatus {
+  UNCONTACTED
+  IN_SEQUENCE
+  REPLIED
+  OPTED_OUT
+  // Undeliverable. Distinct from OPTED_OUT: the recipient did not ask to leave.
+  BOUNCED
+}
+
+enum SuppressionReason {
+  HARD_BOUNCE
+  REPEATED_SOFT_BOUNCE
+  COMPLAINT
+  MANUAL
+}
+
+enum EmailStatus {
+  SENT
+  OPENED
+  BOUNCED
+  FAILED
+}
+
+model Campaign {
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      CampaignStatus @default(DRAFT)
+
+  // Mailbox used to dispatch this campaign. Nullable so a DRAFT can exist first.
+  sendingAccountId String?
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+
+  steps     SequenceStep[]
+  leads     Lead[]
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([sendingAccountId])
+}
+
+model SequenceStep {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  // 1-based position in the sequence.
+  stepOrder Int
+  // Days to wait after the previous step before this one is eligible to send.
+  delayDays Int @default(0)
+
+  // Both support template tags: {{firstName}}, {{lastName}}, {{company}}, {{email}}.
+  subject String
+  body    String
+
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, stepOrder])
+  @@index([campaignId])
+}
+
+model Lead {
+  id         String   @id @default(cuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  email     String
+  firstName String?
+  lastName  String?
+  company   String?
+  // Any extra CSV columns preserved verbatim for template substitution.
+  customFields Json?
+
+  status LeadStatus @default(UNCONTACTED)
+
+  // Opaque token behind the unsubscribe link and the RFC 8058 headers.
+  unsubscribeToken String @unique @default(cuid())
+
+  // Highest stepOrder already delivered. 0 means nothing sent yet.
+  currentStep Int       @default(0)
+  // When the next step becomes eligible. Null once the sequence is exhausted.
+  nextSendAt  DateTime?
+
+  lastContactedAt DateTime?
+  repliedAt       DateTime?
+  optedOutAt      DateTime?
+  bouncedAt       DateTime?
+
+  // Temporary failures seen for this lead. Suppression follows at the limit.
+  softBounceCount Int @default(0)
+
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, email])
+  @@index([campaignId, status])
+  @@index([status, nextSendAt])
+  @@index([email])
+}
+
+model SendingAccount {
+  id        String @id @default(cuid())
+  name      String
+  fromName  String
+  fromEmail String @unique
+
+  smtpHost     String
+  smtpPort     Int     @default(587)
+  smtpSecure   Boolean @default(false)
+  smtpUser     String
+  smtpPassword String
+
+  imapHost     String?
+  imapPort     Int?    @default(993)
+  imapSecure   Boolean @default(true)
+  imapUser     String?
+  imapPassword String?
+
+  // Per-mailbox throttle. sentToday resets when lastResetAt rolls to a new UTC day.
+  maxDaily    Int      @default(50)
+  sentToday   Int      @default(0)
+  lastResetAt DateTime @default(now())
+
+  // Sending window, in this mailbox's own timezone. Cold email landing at 03:00
+  // reads as automated, so sends are confined to working hours.
+  timezone            String @default("America/New_York")
+  sendWindowStartHour Int    @default(8)
+  sendWindowEndHour   Int    @default(17)
+  /// ISO weekdays, 1 = Monday through 7 = Sunday. Defaults to weekdays.
+  sendDays            Int[]  @default([1, 2, 3, 4, 5])
+  /// Random spread applied to each scheduled step, so sends do not leave in a burst.
+  jitterMinutes       Int    @default(45)
+
+  // Warmup ramp. A new mailbox opening at full volume is a spam-filter signal.
+  warmupEnabled        Boolean   @default(false)
+  warmupStartedAt      DateTime?
+  warmupInitialDaily   Int       @default(5)
+  warmupDailyIncrement Int       @default(5)
+
+  isActive Boolean @default(true)
+
+  campaigns Campaign[]
+  emailLogs EmailLog[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+model EmailLog {
+  id String @id @default(cuid())
+
+  leadId     String
+  lead       Lead     @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  sequenceStepId String?
+  sequenceStep   SequenceStep? @relation(fields: [sequenceStepId], references: [id], onDelete: SetNull)
+
+  sendingAccountId String?
+  sendingAccount   SendingAccount? @relation(fields: [sendingAccountId], references: [id], onDelete: SetNull)
+
+  status  EmailStatus @default(SENT)
+  subject String
+  stepOrder Int       @default(1)
+
+  // SMTP Message-ID, used by the reply worker to thread inbound mail.
+  messageId String? @unique
+  // Opaque id embedded in the tracking pixel URL.
+  trackingId String @unique
+
+  sentAt    DateTime  @default(now())
+  openedAt  DateTime?
+  openCount Int       @default(0)
+  error     String?
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId, status])
+  @@index([leadId])
+  @@index([sentAt])
+}
+
+/// A human who can sign in and operate the platform. There is no public sign-up:
+/// the first account is created on an empty install, and further accounts are
+/// added by someone already signed in.
+model User {
+  id    String  @id @default(cuid())
+  email String  @unique
+  name  String?
+
+  /// scrypt digest in a versioned envelope. Never the password itself.
+  passwordHash String
+  isActive     Boolean @default(true)
+
+  lastLoginAt DateTime?
+  sessions    Session[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// One signed-in browser. The cookie carries a random token; only its SHA-256
+/// digest is stored here, so a leaked database does not hand over live sessions.
+model Session {
+  id        String @id @default(cuid())
+  tokenHash String @unique
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  userAgent  String?
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Single-row table for policy that spans every campaign and mailbox. Anything
+/// belonging to one mailbox lives on SendingAccount instead.
+model Setting {
+  id String @id @default("singleton")
+
+  /// Most emails one person may receive across all campaigns within the window
+  /// below. Zero switches the cap off.
+  maxEmailsPerContact Int @default(2)
+  /// Length of that window, in days.
+  contactWindowDays   Int @default(30)
+
+  updatedAt DateTime @updatedAt
+}
+
+/// Addresses that must never be emailed again, keyed on the address rather than
+/// the lead, because the same person can appear in several campaigns.
+model SuppressedAddress {
+  id     String            @id @default(cuid())
+  email  String            @unique
+  reason SuppressionReason
+  detail String?
+
+  // How many times this address has been reported undeliverable.
+  bounceCount Int @default(1)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([reason])
+}
