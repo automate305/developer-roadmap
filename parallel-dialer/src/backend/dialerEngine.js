@@ -218,6 +218,9 @@ export class DialerEngine extends EventEmitter {
         id: legId,
         batchId: batch.id,
         sessionId: session.id,
+        // Carried per-leg so CRM logging attributes the call to the agent who
+        // actually took it, not to whichever identity the process defaults to.
+        agentIdentity: batch.agentIdentity,
         lead,
         callSid: null,
         state: LegState.QUEUED,
@@ -652,6 +655,7 @@ export class DialerEngine extends EventEmitter {
       legId: leg.id,
       batchId: leg.batchId,
       sessionId: leg.sessionId,
+      agentIdentity: leg.agentIdentity ?? null,
       callSid: leg.callSid,
       phone: leg.lead.phone,
       contactId: leg.lead.contactId,

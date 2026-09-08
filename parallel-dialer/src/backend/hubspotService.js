@@ -155,8 +155,16 @@ export class LeadQueue extends EventEmitter {
     /** @type {object[]} */ this.queue = [];
     this.inFlight = 0;
     this.paused = false;
-    this.seen = new Set(); // de-dupes repeat webhooks for the same contact
-    this.stats = { enqueued: 0, dropped: 0, duplicates: 0, batches: 0, failed: 0 };
+    /**
+     * De-dupes repeat webhooks for the same contact. Entries expire, because a
+     * long-running process would otherwise accumulate one per lead forever —
+     * and a lead legitimately re-enters the queue on a later dialing day.
+     * @type {Map<string, number>} key → epoch ms first seen
+     */
+    this.seen = new Map();
+    this.seenTtlMs = opts.seenTtlMs ?? 6 * 60 * 60 * 1000;
+    this.maxSeenEntries = opts.maxSeenEntries ?? 50000;
+    this.stats = { enqueued: 0, dropped: 0, duplicates: 0, batches: 0, failed: 0, seenEvicted: 0 };
   }
 
   /**
@@ -166,6 +174,8 @@ export class LeadQueue extends EventEmitter {
    */
   enqueue(leads) {
     let accepted = 0;
+    this.#pruneSeenByTtl();
+
     for (const lead of Array.isArray(leads) ? leads : [leads]) {
       if (!lead) continue;
 
@@ -180,12 +190,13 @@ export class LeadQueue extends EventEmitter {
         continue;
       }
 
-      this.seen.add(key);
+      this.seen.set(key, Date.now());
       this.queue.push(lead);
       this.stats.enqueued += 1;
       accepted += 1;
     }
 
+    this.#trimSeenToCap();
     if (accepted > 0) setImmediate(() => this.#pump());
     return accepted;
   }
@@ -211,6 +222,36 @@ export class LeadQueue extends EventEmitter {
 
   get size() {
     return this.queue.length;
+  }
+
+  /**
+   * Drop de-dupe entries past their TTL. Runs before an enqueue, so expired
+   * keys do not make a legitimate re-dial look like a duplicate.
+   */
+  #pruneSeenByTtl() {
+    const cutoff = Date.now() - this.seenTtlMs;
+    for (const [key, at] of this.seen) {
+      // Insertion order is chronological, so the first live entry ends the scan.
+      if (at >= cutoff) break;
+      this.seen.delete(key);
+      this.stats.seenEvicted += 1;
+    }
+  }
+
+  /**
+   * Enforce the hard ceiling, oldest first. Runs after inserts — trimming
+   * beforehand would leave the map one over the cap on every enqueue.
+   */
+  #trimSeenToCap() {
+    if (this.seen.size <= this.maxSeenEntries) return;
+    const excess = this.seen.size - this.maxSeenEntries;
+    let removed = 0;
+    for (const key of this.seen.keys()) {
+      if (removed >= excess) break;
+      this.seen.delete(key);
+      removed += 1;
+      this.stats.seenEvicted += 1;
+    }
   }
 
   /** Release batches until the concurrency budget or the queue is exhausted. */
@@ -385,8 +426,10 @@ export async function logCallActivity(args) {
   // record, so fall back to a phone lookup before giving up.
   const contactId = args.contactId ?? (await findContactIdByPhone(phone));
   if (!contactId) {
-    log.warn('no HubSpot contact for call — skipping activity log', { phone, callSid });
-    return { ok: false, reason: 'contact_not_found' };
+    // Retryable: a contact created moments ago may not be in the search index
+    // yet. The caller's queue decides how long to keep trying.
+    log.warn('no HubSpot contact for call — deferring activity log', { phone, callSid });
+    return { ok: false, reason: 'contact_not_found', error: { reason: 'contact_not_found' } };
   }
 
   const properties = {
@@ -423,8 +466,33 @@ export async function logCallActivity(args) {
     return { ok: true, id: created.id };
   } catch (err) {
     log.warn('failed to log call activity', { contactId, callSid, err });
-    return { ok: false, reason: err?.message ?? 'unknown_error' };
+    // `error` is passed through so the retry queue can tell a 429 from a 400.
+    return { ok: false, reason: err?.message ?? 'unknown_error', error: err };
   }
+}
+
+/**
+ * Find an existing Call engagement by its external id (the Twilio call SID).
+ *
+ * This is the idempotency probe the retry queue uses: a write whose response
+ * was lost would otherwise be duplicated on the next attempt.
+ *
+ * @param {string} callSid
+ * @returns {Promise<string|null>} engagement id, or null when absent
+ */
+export async function findCallByExternalId(callSid) {
+  if (!isHubSpotConfigured() || !callSid) return null;
+
+  const hubspot = getHubSpotClient();
+  const response = await hubspot.crm.objects.calls.searchApi.doSearch({
+    filterGroups: [
+      { filters: [{ propertyName: 'hs_call_external_id', operator: 'EQ', value: callSid }] },
+    ],
+    properties: ['hs_call_external_id'],
+    limit: 1,
+  });
+
+  return response.results?.[0]?.id ?? null;
 }
 
 /** Human-readable timeline body. */
@@ -475,5 +543,6 @@ export default {
   fetchContacts,
   findContactIdByPhone,
   logCallActivity,
+  findCallByExternalId,
   normalizePhone,
 };
