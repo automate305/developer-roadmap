@@ -315,31 +315,28 @@ pass `--keep`.
 
 ## Deploying to Vercel
 
-### Automatic deployment is currently off
+### Automatic deployment
 
-`vercel.json` sets `git.deploymentEnabled: false`. Pushes do not deploy.
+Pushes deploy. `vercel.json` carries no `git` block, so the Vercel project
+**a305-sep-web** builds `master` to production and other branches to previews.
 
-This is deliberate. The Vercel project **a305-sep-web** was linked to the whole
-`automate305/developer-roadmap` repository with root directory `apps/sep`, which
-made it try to build *every* branch pushed to that repository. Branches that do
-not contain `apps/sep` — other projects living in the same repo — failed with
-"The specified Root Directory does not exist", putting red checks on unrelated
-pull requests.
+It was switched off for a while, and the reason is worth keeping in mind. The
+project is linked to the whole `automate305/developer-roadmap` repository with
+root directory `apps/sep`, so it tries to build *every* branch pushed there.
+While `apps/sep` existed only on a feature branch, every other branch failed
+with "The specified Root Directory does not exist" and put a red check on an
+unrelated pull request. Vercel resolves the root directory *before* it reads
+`vercel.json`, so nothing in this file could prevent that — only merging to
+`master` could, which is what happened.
 
-Two guards live here now:
+One caveat remains: a branch cut from `master` **before** that merge still has
+no `apps/sep` and will still fail to build until it picks up `master`. That
+resolves itself as those branches merge or rebase. If it becomes a nuisance
+sooner, disconnect the Git repository in Vercel's dashboard (Settings → Git),
+or give this app its own repository.
 
-- `git.deploymentEnabled: false` stops this project deploying from any branch
-  that carries this file.
-- `ignoreCommand` skips a build when a push changed nothing under `apps/sep`.
-
-Neither can help a branch with no `apps/sep` at all, because Vercel resolves the
-root directory before it reads `vercel.json`. Ending that requires disconnecting
-the Git repository from the project in Vercel's dashboard (Settings → Git), or
-deleting the project.
-
-To bring deployment back, remove the `git` block — ideally once this app lives
-somewhere it cannot collide with other projects: its own repository, or `master`
-after this merges, so the directory exists on every branch.
+`ignoreCommand` skips a build when a push changed nothing under `apps/sep`,
+which is most commits in a repository that is mostly roadmap content.
 
 Vercel hosts the dashboard, `/api/leads/import`, the tracking pixel at
 `/api/track/open`, and the two scheduled routes that drive sending.
