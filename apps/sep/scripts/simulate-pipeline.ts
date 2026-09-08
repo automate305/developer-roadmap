@@ -30,6 +30,7 @@ import {
 } from '../lib/schedule';
 import { SuppressionReason } from '../lib/generated/prisma';
 import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
+import { checkRateLimit, isSameOrigin } from '../lib/rate-limit';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import { reserveDailySend, type MailSender, type OutboundMessage } from '../lib/mailer';
 
@@ -912,6 +913,60 @@ async function main() {
   await prisma.sendingAccount.deleteMany({
     where: { id: { in: [nightAccount.id, warmingAccount.id] } },
   });
+
+  // ------------------------------------------------- public endpoint guards ---
+  section('12. Public endpoints are throttled');
+
+  const nowMs = Date.now();
+  const results = Array.from({ length: 6 }, () =>
+    checkRateLimit('sim-key', { limit: 5, windowMs: 60_000 }, nowMs),
+  );
+  check('requests inside the limit are allowed', results.slice(0, 5).every((r) => r.allowed));
+  check('the request past the limit is refused', !results[5].allowed);
+  check('it reports when to retry', results[5].retryAfterSeconds > 0, String(results[5].retryAfterSeconds));
+
+  const afterWindow = checkRateLimit('sim-key', { limit: 5, windowMs: 60_000 }, nowMs + 61_000);
+  check('the window reopens once it expires', afterWindow.allowed);
+
+  check(
+    'separate clients get separate budgets',
+    checkRateLimit('other-key', { limit: 5, windowMs: 60_000 }, nowMs).allowed,
+  );
+
+  // A rate-limited pixel must still return an image, or the recipient sees a
+  // broken image and learns the message is tracked.
+  for (let i = 0; i < 320; i += 1) {
+    checkRateLimit('track:1.2.3.4', { limit: 300, windowMs: 60_000 }, nowMs);
+  }
+  const throttledPixel = await trackOpen(
+    new Request(`${APP_URL}/api/track/open?t=whatever`, {
+      headers: { 'x-forwarded-for': '1.2.3.4' },
+    }),
+  );
+  check('a throttled pixel still returns 200', throttledPixel.status === 200);
+  check(
+    'and still returns an image',
+    throttledPixel.headers.get('content-type') === 'image/gif',
+  );
+
+  check(
+    'a same-origin post is accepted',
+    isSameOrigin(
+      new Request('http://sim.local/api/leads/import', {
+        method: 'POST',
+        headers: { origin: 'http://sim.local', host: 'sim.local' },
+      }),
+    ),
+  );
+  check(
+    'a cross-origin post is rejected',
+    !isSameOrigin(
+      new Request('http://sim.local/api/leads/import', {
+        method: 'POST',
+        headers: { origin: 'https://evil.test', host: 'sim.local' },
+      }),
+    ),
+  );
 
   if (!keep) {
     await cleanup();

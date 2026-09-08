@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { toMessage } from '@/lib/errors';
 import { scheduleCampaignLeads } from '@/lib/sequence';
+import { checkRateLimit, clientKey, isSameOrigin } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -42,6 +43,22 @@ function clean(value: string | null | undefined): string | null {
 }
 
 export async function POST(request: Request) {
+  // This endpoint writes the addresses the platform will email, so an open one
+  // is a way to make someone else's mailbox send to a list of your choosing.
+  // The app has no user authentication of its own yet — see the README — so
+  // these two checks are the floor, not the ceiling.
+  if (!isSameOrigin(request)) {
+    return NextResponse.json({ error: 'Cross-origin requests are not allowed.' }, { status: 403 });
+  }
+
+  const limit = checkRateLimit(clientKey(request, 'import'), { limit: 10, windowMs: 60_000 });
+  if (!limit.allowed) {
+    return NextResponse.json(
+      { error: 'Too many import requests. Please wait a moment.' },
+      { status: 429, headers: { 'Retry-After': String(limit.retryAfterSeconds) } },
+    );
+  }
+
   try {
     const json = await request.json();
     const payload = payloadSchema.parse(json);

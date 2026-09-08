@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { EmailStatus } from '@/lib/generated/prisma';
 import { TRANSPARENT_GIF } from '@/lib/tracking';
+import { checkRateLimit, clientKey } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 // The pixel must never be served from a cache, or repeat opens go unrecorded.
@@ -27,6 +28,12 @@ function pixel() {
 export async function GET(request: Request) {
   const trackingId = new URL(request.url).searchParams.get('t');
   if (!trackingId) return pixel();
+
+  // Throttling here protects the database, never the image: a rate-limited
+  // request still gets a valid pixel, because a broken image in the recipient's
+  // client would advertise that the message is tracked.
+  const limit = checkRateLimit(clientKey(request, 'track'), { limit: 300, windowMs: 60_000 });
+  if (!limit.allowed) return pixel();
 
   try {
     const log = await prisma.emailLog.findUnique({

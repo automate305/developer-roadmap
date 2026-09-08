@@ -101,6 +101,36 @@ where you keep other production secrets. Rotating it means decrypting with the
 old key and re-encrypting with the new one; the `v1:` prefix is there to make
 that possible without ambiguity.
 
+## Access control — read this before exposing the app
+
+**The app has no user authentication of its own.** Anyone who can reach a page
+can read every lead and create campaigns. Today that is survivable only because
+the Vercel project has Vercel Authentication switched on, which covers pages and
+API routes alike. Note that the protection is configured as
+`all_except_custom_domains`: **attaching a custom domain would expose everything**
+until real authentication exists. Adding it is the largest outstanding piece of
+work on this app.
+
+Three routes are unauthenticated by necessity, since recipients and mail clients
+call them without credentials:
+
+| Route | Guard |
+| --- | --- |
+| `/api/track/open` | 300 requests per minute per client. A throttled request still returns a valid pixel — a broken image would advertise that the message is tracked. |
+| `/api/unsubscribe` | 20 per minute per client, so the token space cannot be probed. |
+| `/unsubscribe/<token>` | Viewing never opts anyone out; only a POST does. |
+
+`/api/leads/import` decides which addresses this platform will email, so an open
+one is a way to make someone else's mailbox send to a list of an attacker's
+choosing. It rejects cross-origin requests and allows ten calls a minute per
+client. Neither check is a substitute for authentication: a direct client can
+set any `Origin` header it likes.
+
+Rate-limit counters live in process memory, so on a serverless platform the
+limit is per instance rather than global. That is enough for casual abuse and
+runaway loops, not a distributed attacker. `lib/rate-limit.ts` is deliberately
+narrow so the store can move to Redis in one file.
+
 ## Seeing what is happening
 
 The dashboard carries a bounce rate alongside the open and reply rates, and

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { optOutByToken } from '@/lib/unsubscribe';
 import { toMessage } from '@/lib/errors';
+import { checkRateLimit, clientKey } from '@/lib/rate-limit';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,6 +17,16 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: Request) {
   const token = new URL(request.url).searchParams.get('t') ?? '';
+
+  // Unauthenticated and token-guessable by design, so it is throttled to stop
+  // the token space being probed.
+  const limit = checkRateLimit(clientKey(request, 'unsub'), { limit: 20, windowMs: 60_000 });
+  if (!limit.allowed) {
+    return new NextResponse('Too many requests. Please try again shortly.', {
+      status: 429,
+      headers: { 'Retry-After': String(limit.retryAfterSeconds) },
+    });
+  }
 
   try {
     const result = await optOutByToken(token);
