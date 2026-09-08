@@ -203,3 +203,18 @@ describe('power-dial mode (screening: false)', () => {
     assert.equal(harness.hungUp.length, 1, 'screened mode still drops a machine');
   });
 });
+
+describe('power-dial mode interlock', () => {
+  it('forces batchSize 1 so no leg can be abandoned without an announcement', async () => {
+    const harness = makeHarness();
+    const session = await harness.engine.startSession({
+      leads: LEADS, batchSize: 5, autoAdvance: false, screening: false,
+    });
+
+    // With screening off the abandoned-call path in classify() never runs, so
+    // a losing leg would be hung up on silently. One line makes that
+    // impossible rather than relying on a later guard.
+    assert.equal(session.batchSize, 1);
+    assert.equal(session.currentBatch.legs.length, 1);
+  });
+});

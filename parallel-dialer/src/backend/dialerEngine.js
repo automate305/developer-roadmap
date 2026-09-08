@@ -132,7 +132,18 @@ export class DialerEngine extends EventEmitter {
     const normalized = (leads ?? []).map(normalizeLead);
     if (normalized.length === 0) throw new Error('startSession requires at least one lead');
 
-    const size = Math.min(Math.max(batchSize ?? config.dialer.batchSize, 1), 10);
+    let size = Math.min(Math.max(batchSize ?? config.dialer.batchSize, 1), 10);
+
+    // Power-dial mode is one line by definition, and the clamp is a safety
+    // interlock rather than tidiness. With screening off, the abandoned-call
+    // path in classify() never runs — so a second human answering a parallel
+    // batch would be torn down silently, with no identification message. That
+    // is precisely the abandoned call the FCC requires us to announce. One
+    // line leaves no losing leg, so the situation cannot arise.
+    if (screening === false && size > 1) {
+      log.warn('power-dial mode forces batchSize 1', { requested: size, screening });
+      size = 1;
+    }
 
     const session = {
       id: `sess_${randomUUID()}`,

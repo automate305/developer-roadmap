@@ -56,6 +56,12 @@ that a call reaches the agent* — and that answer sets the risk.
 | **Screened power dial** | `batchSize: 1`, `screening: true` | The AMD verdict | A wrong MACHINE verdict silently drops a live prospect |
 | **Parallel dial** | `batchSize: 3–5`, `screening: true` | The AMD verdict, first HUMAN wins | The above, plus abandoned calls under the FCC's 3% cap |
 
+Setting `screening: false` forces `batchSize` to 1. That is an interlock, not
+tidiness: with screening off the abandoned-call announcement in `classify()`
+never runs, so a second human answering a parallel batch would be hung up on
+silently — the one thing the FCC requires you to announce. One line leaves no
+losing leg, so the case cannot arise.
+
 **Power dial is the place to start**, and not only because it is simplest. One
 line per agent means there is no losing leg, so nothing can be abandoned and
 the 3% rule cannot be breached. Bridging on answer means no classifier verdict
