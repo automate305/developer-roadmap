@@ -101,6 +101,37 @@ where you keep other production secrets. Rotating it means decrypting with the
 old key and re-encrypting with the new one; the `v1:` prefix is there to make
 that possible without ambiguity.
 
+## Bounces and suppression
+
+A delivery report arrives from the postmaster, not from the lead, so the failed
+address is read out of the report itself — the `Final-Recipient` and `Status`
+fields of the `message/delivery-status` part, falling back to the wording
+providers use when they send no machine-readable part. Matching on the `From`
+header would miss almost every real bounce.
+
+- **Hard bounce** (5.x.x, "user unknown", a 5xx at SMTP time) suppresses the
+  address immediately.
+- **Soft bounce** (4.x.x, mailbox full, greylisting) is counted. After
+  `SOFT_BOUNCE_LIMIT` (3) the address is suppressed too, because repeatedly
+  hitting a failing address costs sending reputation.
+- A delivery receipt (2.x.x) and an ordinary human reply are neither.
+
+Suppression is keyed on the **address**, not the lead, because the same owner
+can sit in several campaigns. Suppressing halts every matching lead across all
+campaigns, setting them to `BOUNCED` and clearing `nextSendAt`.
+
+`BOUNCED` is deliberately its own lead status rather than reusing `OPTED_OUT`:
+the recipient did not ask to leave, the address is simply undeliverable, and the
+two want different reporting.
+
+The send path checks the suppression list before every dispatch, so re-importing
+a dead address into a fresh campaign does not revive it. A permanent rejection
+at SMTP time returns a `bounced` outcome rather than throwing, so the queue does
+not retry an address that will never accept mail.
+
+`unsuppressAddress()` lifts a suppression and returns its leads to
+`UNCONTACTED`, for an address a human judges deliverable again.
+
 ## Unsubscribing
 
 Every lead carries an opaque `unsubscribeToken`, and every outbound message

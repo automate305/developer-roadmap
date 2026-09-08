@@ -31,6 +31,7 @@ const STATUS_FILTERS: (LeadStatus | 'ALL')[] = [
   LeadStatus.IN_SEQUENCE,
   LeadStatus.REPLIED,
   LeadStatus.OPTED_OUT,
+  LeadStatus.BOUNCED,
 ];
 
 export function LeadsTable({ leads, totalSteps }: { leads: LeadView[]; totalSteps: number }) {

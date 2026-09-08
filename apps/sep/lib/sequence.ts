@@ -6,10 +6,18 @@ import { getEmailQueue, sendJobId } from './queue';
 export const SENDABLE_LEAD_STATUSES = [LeadStatus.UNCONTACTED, LeadStatus.IN_SEQUENCE] as const;
 
 /** A lead in one of these states must never receive another sequence email. */
-export const HALTED_LEAD_STATUSES = [LeadStatus.REPLIED, LeadStatus.OPTED_OUT] as const;
+export const HALTED_LEAD_STATUSES = [
+  LeadStatus.REPLIED,
+  LeadStatus.OPTED_OUT,
+  LeadStatus.BOUNCED,
+] as const;
 
 export function isHalted(status: LeadStatus): boolean {
-  return status === LeadStatus.REPLIED || status === LeadStatus.OPTED_OUT;
+  return (
+    status === LeadStatus.REPLIED ||
+    status === LeadStatus.OPTED_OUT ||
+    status === LeadStatus.BOUNCED
+  );
 }
 
 export function addDays(from: Date, days: number): Date {

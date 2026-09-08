@@ -13,6 +13,8 @@ import { EmailStatus, LeadStatus, type SendingAccount } from './generated/prisma
 import { env } from './env';
 import { isHalted } from './sequence';
 import { decryptSecret } from './crypto';
+import { classifyBounce, recordSoftBounce, suppressAddress } from './bounce';
+import { SuppressionReason } from './generated/prisma';
 
 /** Normalized view of an inbound message, independent of the IMAP client. */
 export type InboundMessage = {
@@ -22,6 +24,10 @@ export type InboundMessage = {
   inReplyTo?: string | null;
   references?: string[];
   receivedAt?: Date;
+  /** Text body, used to read a bounce that carries no machine-readable part. */
+  body?: string | null;
+  /** The message/delivery-status part of a DSN, when the report includes one. */
+  deliveryStatus?: string | null;
 };
 
 /** Restrict polling to one mailbox; omitted means poll every active account. */
@@ -31,7 +37,14 @@ export type ReplyJobData = {
 
 export type InboundOutcome =
   | { status: 'replied'; leadId: string; campaignId: string; cancelledSteps: number }
-  | { status: 'bounced'; leadId: string; emailLogId: string }
+  | {
+      status: 'bounced';
+      kind: 'hard' | 'soft';
+      email: string;
+      leadId: string | null;
+      emailLogId: string | null;
+      suppressed: boolean;
+    }
   | { status: 'ignored'; reason: string };
 
 const AUTO_REPLY_PATTERN =
@@ -70,6 +83,91 @@ export async function handleInboundMessage(
       })
     : null;
 
+  // ---- Bounces first ------------------------------------------------------
+  // A delivery report comes from the postmaster, not from the lead, so the
+  // recipient has to be read out of the report itself rather than the From
+  // header. Doing this before the reply path stops a bounce being mistaken for
+  // a human answer.
+  const looksLikeReport =
+    SYSTEM_SENDER_PATTERN.test(from) ||
+    /^(undeliverable|delivery status|mail delivery|returned mail|failure notice)/i.test(
+      message.subject ?? '',
+    );
+
+  if (looksLikeReport) {
+    const verdict = classifyBounce({
+      subject: message.subject,
+      body: message.body,
+      deliveryStatus: message.deliveryStatus,
+    });
+
+    if (verdict.kind !== 'none') {
+      // The report names the failed address; fall back to the threaded log's
+      // lead when it does not.
+      const bouncedEmail = verdict.recipient ?? threadedLog?.lead.email ?? null;
+      if (!bouncedEmail) return { status: 'ignored', reason: 'bounce_without_recipient' };
+
+      const bouncedLead =
+        threadedLog?.lead ??
+        (await prisma.lead.findFirst({
+          where: { email: bouncedEmail },
+          orderBy: { lastContactedAt: 'desc' },
+        }));
+
+      const target =
+        threadedLog ??
+        (bouncedLead
+          ? await prisma.emailLog.findFirst({
+              where: { leadId: bouncedLead.id },
+              orderBy: { sentAt: 'desc' },
+            })
+          : null);
+
+      if (target) {
+        await prisma.emailLog.update({
+          where: { id: target.id },
+          data: {
+            status: EmailStatus.BOUNCED,
+            error: (verdict.detail ?? 'Bounce reported by inbound mail.').slice(0, 500),
+          },
+        });
+      }
+
+      if (verdict.kind === 'hard') {
+        const suppression = await suppressAddress(
+          bouncedEmail,
+          SuppressionReason.HARD_BOUNCE,
+          verdict.detail,
+        );
+        return {
+          status: 'bounced',
+          kind: 'hard',
+          email: bouncedEmail,
+          leadId: bouncedLead?.id ?? null,
+          emailLogId: target?.id ?? null,
+          suppressed: suppression.leadsHalted >= 0,
+        };
+      }
+
+      let suppressed = false;
+      if (bouncedLead) {
+        const soft = await recordSoftBounce(
+          { id: bouncedLead.id, email: bouncedEmail },
+          verdict.detail,
+        );
+        suppressed = soft.status === 'suppressed';
+      }
+      return {
+        status: 'bounced',
+        kind: 'soft',
+        email: bouncedEmail,
+        leadId: bouncedLead?.id ?? null,
+        emailLogId: target?.id ?? null,
+        suppressed,
+      };
+    }
+  }
+
   const lead =
     threadedLog?.lead ??
     (await prisma.lead.findFirst({
@@ -84,21 +182,6 @@ export async function handleInboundMessage(
     }));
 
   if (!lead) return { status: 'ignored', reason: 'no_matching_lead' };
-
-  // A delivery failure notice is not a human reply: log the bounce, keep the
-  // lead schedule untouched for the operator to decide.
-  if (SYSTEM_SENDER_PATTERN.test(from) || /^(undeliverable|delivery status|mail delivery)/i.test(message.subject ?? '')) {
-    const target =
-      threadedLog ??
-      (await prisma.emailLog.findFirst({ where: { leadId: lead.id }, orderBy: { sentAt: 'desc' } }));
-    if (!target) return { status: 'ignored', reason: 'bounce_without_log' };
-
-    await prisma.emailLog.update({
-      where: { id: target.id },
-      data: { status: EmailStatus.BOUNCED, error: 'Bounce reported by inbound mail.' },
-    });
-    return { status: 'bounced', leadId: lead.id, emailLogId: target.id };
-  }
 
   if (AUTO_REPLY_PATTERN.test(message.subject ?? '')) {
     return { status: 'ignored', reason: 'auto_reply' };
@@ -138,6 +221,13 @@ function toInbound(parsed: ParsedMail): InboundMessage {
       ? [parsed.references]
       : [];
 
+  // A DSN carries its machine-readable verdict in a message/delivery-status
+  // part, which mailparser surfaces as an attachment.
+  const deliveryStatus = (parsed.attachments ?? [])
+    .filter((attachment) => /delivery-status|rfc822-headers/i.test(attachment.contentType ?? ''))
+    .map((attachment) => attachment.content?.toString('utf8') ?? '')
+    .join('\n');
+
   return {
     from: fromAddress,
     subject: parsed.subject ?? '',
@@ -145,6 +235,8 @@ function toInbound(parsed: ParsedMail): InboundMessage {
     inReplyTo: parsed.inReplyTo ?? null,
     references,
     receivedAt: parsed.date ?? new Date(),
+    body: parsed.text ?? null,
+    deliveryStatus: deliveryStatus || null,
   };
 }
 

@@ -35,7 +35,7 @@ export async function GET(request: Request) {
     MAX_BATCH,
   );
 
-  const counts = { sent: 0, skipped: 0, deferred: 0, failed: 0 };
+  const counts = { sent: 0, bounced: 0, skipped: 0, deferred: 0, failed: 0 };
   const errors: string[] = [];
   let processed = 0;
   let timedOut = false;

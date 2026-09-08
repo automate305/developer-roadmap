@@ -9,7 +9,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { prisma } from './prisma';
-import { CampaignStatus, EmailStatus } from './generated/prisma';
+import { CampaignStatus, EmailStatus, LeadStatus } from './generated/prisma';
 import { env } from './env';
 import { leadVariables, renderTemplate } from './template';
 import { bodyToHtml, htmlToPlainText, injectTrackingPixel } from './tracking';
@@ -20,6 +20,8 @@ import {
 } from './unsubscribe';
 import { advanceLead, completeCampaignIfDrained, isHalted, addDays } from './sequence';
 import { releaseDailySend, reserveDailySend, smtpSender, type MailSender } from './mailer';
+import { classifySmtpError, isSuppressed, recordSoftBounce, suppressAddress } from './bounce';
+import { SuppressionReason } from './generated/prisma';
 
 /** One scheduled sequence step for one lead. */
 export type SendJobData = {
@@ -30,6 +32,7 @@ export type SendJobData = {
 
 export type SendOutcome =
   | { status: 'sent'; emailLogId: string; messageId: string | null }
+  | { status: 'bounced'; emailLogId: string; reason: string }
   | { status: 'skipped'; reason: string }
   | { status: 'deferred'; reason: string; retryAt: Date | null }
   | { status: 'failed'; reason: string; emailLogId?: string };
@@ -70,6 +73,15 @@ export async function processSendJob(
 
   if (lead.currentStep >= data.stepOrder) {
     return { status: 'skipped', reason: 'step_already_sent' };
+  }
+
+  // The address may have bounced under a different campaign.
+  if (await isSuppressed(lead.email)) {
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data: { status: LeadStatus.BOUNCED, bouncedAt: now, nextSendAt: null },
+    });
+    return { status: 'skipped', reason: 'address_suppressed' };
   }
 
   const step = await prisma.sequenceStep.findUnique({
@@ -188,11 +200,28 @@ export async function processSendJob(
     return { status: 'sent', emailLogId: emailLog.id, messageId: result.messageId };
   } catch (error) {
     const reason = error instanceof Error ? error.message : 'SMTP dispatch failed.';
+    const kind = classifySmtpError(error);
+
     await prisma.emailLog.update({
       where: { id: emailLog.id },
-      data: { status: EmailStatus.FAILED, error: reason.slice(0, 500) },
+      data: {
+        status: kind === 'hard' ? EmailStatus.BOUNCED : EmailStatus.FAILED,
+        error: reason.slice(0, 500),
+      },
     });
     await releaseDailySend(account.id);
+
+    if (kind === 'hard') {
+      // A permanent rejection is answered now, not retried: further attempts
+      // only cost sending reputation.
+      await suppressAddress(lead.email, SuppressionReason.HARD_BOUNCE, reason);
+      return { status: 'bounced', emailLogId: emailLog.id, reason };
+    }
+
+    if (kind === 'soft') {
+      await recordSoftBounce(lead, reason);
+    }
+
     // Rethrow so BullMQ applies its backoff and retry policy.
     throw new Error(reason);
   }

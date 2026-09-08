@@ -20,6 +20,8 @@ import { handleInboundMessage } from '../lib/inbound';
 import { scheduleCampaignLeads, findDueLeads } from '../lib/sequence';
 import { optOutByToken, unsubscribePageUrl, oneClickUnsubscribeUrl } from '../lib/unsubscribe';
 import { encryptSecret, decryptSecret, isEncrypted } from '../lib/crypto';
+import { classifyBounce, classifySmtpError, isSuppressed, SOFT_BOUNCE_LIMIT } from '../lib/bounce';
+import { SuppressionReason } from '../lib/generated/prisma';
 import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import type { MailSender, OutboundMessage } from '../lib/mailer';
@@ -521,6 +523,164 @@ async function main() {
   );
 
   await prisma.sendingAccount.delete({ where: { id: encryptedAccount.id } });
+
+  // -------------------------------------------------- bounce suppression ---
+  section('10. Bounces suppress the address');
+
+  // A real DSN: the failed recipient lives in the report, not the From header.
+  const hardDsn = [
+    'Reporting-MTA: dns; mx.sim-hvac.test',
+    '',
+    'Final-Recipient: rfc822; dead@sim-hvac.test',
+    'Action: failed',
+    'Status: 5.1.1',
+    'Diagnostic-Code: smtp; 550 5.1.1 <dead@sim-hvac.test>: Recipient address rejected: User unknown',
+  ].join('\n');
+
+  const hardVerdict = classifyBounce({ subject: 'Undeliverable', deliveryStatus: hardDsn });
+  check('a 5.x.x report is classified hard', hardVerdict.kind === 'hard', JSON.stringify(hardVerdict));
+  check(
+    'the failed recipient is read out of the report',
+    hardVerdict.recipient === 'dead@sim-hvac.test',
+    String(hardVerdict.recipient),
+  );
+  check('the enhanced status is captured', hardVerdict.status === '5.1.1', String(hardVerdict.status));
+
+  const softDsn = [
+    'Final-Recipient: rfc822; busy@sim-hvac.test',
+    'Action: failed',
+    'Status: 4.2.2',
+    'Diagnostic-Code: smtp; 452 4.2.2 Mailbox full',
+  ].join('\n');
+  const softVerdict = classifyBounce({ subject: 'Delivery delayed', deliveryStatus: softDsn });
+  check('a 4.x.x report is classified soft', softVerdict.kind === 'soft', JSON.stringify(softVerdict));
+
+  check(
+    'a plain human reply is not a bounce',
+    classifyBounce({ subject: 'Re: your note', body: 'Sure, call me Tuesday.' }).kind === 'none',
+  );
+  check(
+    'a delivery receipt is not a bounce',
+    classifyBounce({ subject: 'Delivered', deliveryStatus: 'Action: delivered\nStatus: 2.0.0' }).kind ===
+      'none',
+  );
+
+  check('a 550 from SMTP is hard', classifySmtpError({ responseCode: 550, response: '550 no such user' }) === 'hard');
+  check('a 451 from SMTP is soft', classifySmtpError({ responseCode: 451, response: '451 try later' }) === 'soft');
+  check('a connection error is neither', classifySmtpError(new Error('getaddrinfo ENOTFOUND')) === 'none');
+
+  // The same address in two campaigns must be halted in both.
+  const otherCampaign = await prisma.campaign.create({
+    data: {
+      name: `${TAG} second campaign`,
+      status: CampaignStatus.ACTIVE,
+      sendingAccountId: account.id,
+      steps: { create: [{ stepOrder: 1, delayDays: 0, subject: 'Hi', body: 'Hello.' }] },
+    },
+  });
+
+  const bouncingA = await prisma.lead.create({
+    data: { campaignId: campaign.id, email: 'dead@sim-hvac.test', firstName: 'Dead', nextSendAt: new Date() },
+  });
+  const bouncingB = await prisma.lead.create({
+    data: { campaignId: otherCampaign.id, email: 'dead@sim-hvac.test', firstName: 'Dead', nextSendAt: new Date() },
+  });
+
+  const bounceOutcome = await handleInboundMessage(
+    {
+      from: 'MAILER-DAEMON@mx.sim-hvac.test',
+      subject: 'Undeliverable: Quick question',
+      deliveryStatus: hardDsn,
+      receivedAt: new Date(),
+    },
+    { sendingAccountId: account.id },
+  );
+  check(
+    'the hard bounce is recognised',
+    bounceOutcome.status === 'bounced' && bounceOutcome.kind === 'hard',
+    JSON.stringify(bounceOutcome),
+  );
+  check('the address is now suppressed', await isSuppressed('dead@sim-hvac.test'));
+
+  const leadA = await prisma.lead.findUniqueOrThrow({ where: { id: bouncingA.id } });
+  const leadB = await prisma.lead.findUniqueOrThrow({ where: { id: bouncingB.id } });
+  check('the lead in campaign one is BOUNCED', leadA.status === LeadStatus.BOUNCED);
+  check('the lead in the other campaign is BOUNCED too', leadB.status === LeadStatus.BOUNCED);
+  check('both schedules were cleared', leadA.nextSendAt === null && leadB.nextSendAt === null);
+  check('bouncedAt was stamped', Boolean(leadA.bouncedAt));
+
+  const messagesBeforeBounceGuard = sentMessages.length;
+  const bouncedSend = await processSendJob(
+    { leadId: bouncingA.id, campaignId: campaign.id, stepOrder: 1 },
+    { sendMail: fakeSender, appUrl: APP_URL },
+  );
+  check(
+    'sending to a bounced lead is refused',
+    bouncedSend.status === 'skipped' && bouncedSend.reason === 'lead_bounced',
+    JSON.stringify(bouncedSend),
+  );
+  check('no mail went to the dead address', sentMessages.length === messagesBeforeBounceGuard);
+
+  // Re-importing a suppressed address into a live campaign must not revive it:
+  // the pre-send guard checks the suppression list, not just the lead status.
+  await prisma.lead.update({
+    where: { id: bouncingB.id },
+    data: { status: LeadStatus.UNCONTACTED, bouncedAt: null, nextSendAt: new Date() },
+  });
+  const freshSend = await processSendJob(
+    { leadId: bouncingB.id, campaignId: otherCampaign.id, stepOrder: 1 },
+    { sendMail: fakeSender, appUrl: APP_URL },
+  );
+  check(
+    're-importing a suppressed address does not revive it',
+    freshSend.status === 'skipped' && freshSend.reason === 'address_suppressed',
+    JSON.stringify(freshSend),
+  );
+
+  const suppressedRow = await prisma.suppressedAddress.findUniqueOrThrow({
+    where: { email: 'dead@sim-hvac.test' },
+  });
+  check('the suppression records why', suppressedRow.reason === SuppressionReason.HARD_BOUNCE);
+  check('the provider diagnostic is kept', Boolean(suppressedRow.detail));
+
+  // Soft bounces are tolerated until the limit.
+  const softLead = await prisma.lead.create({
+    data: { campaignId: campaign.id, email: 'busy@sim-hvac.test', firstName: 'Busy', nextSendAt: new Date() },
+  });
+
+  for (let attempt = 1; attempt < SOFT_BOUNCE_LIMIT; attempt += 1) {
+    await handleInboundMessage(
+      { from: 'MAILER-DAEMON@mx.sim-hvac.test', subject: 'Delivery delayed', deliveryStatus: softDsn },
+      { sendingAccountId: account.id },
+    );
+  }
+  check(
+    `an address is tolerated for ${SOFT_BOUNCE_LIMIT - 1} soft bounces`,
+    !(await isSuppressed('busy@sim-hvac.test')),
+  );
+  check(
+    'the soft-bounced lead is still sendable',
+    (await prisma.lead.findUniqueOrThrow({ where: { id: softLead.id } })).status !== LeadStatus.BOUNCED,
+  );
+
+  const finalSoft = await handleInboundMessage(
+    { from: 'MAILER-DAEMON@mx.sim-hvac.test', subject: 'Delivery delayed', deliveryStatus: softDsn },
+    { sendingAccountId: account.id },
+  );
+  check(
+    'the limit suppresses the address',
+    finalSoft.status === 'bounced' && finalSoft.suppressed,
+    JSON.stringify(finalSoft),
+  );
+  check('the repeatedly failing address is suppressed', await isSuppressed('busy@sim-hvac.test'));
+  check(
+    'its lead is now BOUNCED',
+    (await prisma.lead.findUniqueOrThrow({ where: { id: softLead.id } })).status === LeadStatus.BOUNCED,
+  );
+
+  await prisma.suppressedAddress.deleteMany({
+    where: { email: { in: ['dead@sim-hvac.test', 'busy@sim-hvac.test'] } },
+  });
 
   if (!keep) {
     await cleanup();

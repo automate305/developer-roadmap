@@ -8,11 +8,13 @@ const CAMPAIGN_TONE: Record<CampaignStatus, 'neutral' | 'accent' | 'warning' | '
   COMPLETED: 'positive',
 };
 
-const LEAD_TONE: Record<LeadStatus, 'neutral' | 'accent' | 'positive' | 'danger'> = {
+const LEAD_TONE: Record<LeadStatus, 'neutral' | 'accent' | 'positive' | 'warning' | 'danger'> = {
   UNCONTACTED: 'neutral',
   IN_SEQUENCE: 'accent',
   REPLIED: 'positive',
   OPTED_OUT: 'danger',
+  // Undeliverable rather than refused, so it reads differently from an opt-out.
+  BOUNCED: 'warning',
 };
 
 const EMAIL_TONE: Record<EmailStatus, 'neutral' | 'accent' | 'warning' | 'danger'> = {
