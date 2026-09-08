@@ -45,6 +45,39 @@ Machine phrases are checked before greetings, because a voicemail greeting very
 often opens with "Hi" or "Hello". A greeting only counts as human when the whole
 utterance is seven words or fewer.
 
+## Dialing modes
+
+The same engine runs three modes. They differ in one question — *what decides
+that a call reaches the agent* — and that answer sets the risk.
+
+| Mode | Settings | Who decides | Risk it carries |
+| --- | --- | --- | --- |
+| **Power dial** | `batchSize: 1`, `screening: false` | The callee answering | None of the below |
+| **Screened power dial** | `batchSize: 1`, `screening: true` | The AMD verdict | A wrong MACHINE verdict silently drops a live prospect |
+| **Parallel dial** | `batchSize: 3–5`, `screening: true` | The AMD verdict, first HUMAN wins | The above, plus abandoned calls under the FCC's 3% cap |
+
+**Power dial is the place to start**, and not only because it is simplest. One
+line per agent means there is no losing leg, so nothing can be abandoned and
+the 3% rule cannot be breached. Bridging on answer means no classifier verdict
+stands between a prospect and your agent, so the invisible failure — a false
+MACHINE hanging up on a real person who then never hears from you — cannot
+happen.
+
+What makes it more than a fallback: **the classifier still runs in power-dial
+mode, and still records.** Every call writes an audit row with the verdict it
+*would* have given, while your agent's own disposition supplies the truth. Run
+a few hundred power dials and `npm run score:amd` prints a real confusion
+matrix — which is exactly the evidence needed to trust screening, and later
+parallel dialing. The simple mode is how the fast mode earns its thresholds.
+
+```bash
+curl -X POST http://localhost:3000/api/sessions \
+  -H 'Content-Type: application/json' \
+  -H "x-dialer-key: $DIALER_API_KEY" \
+  -d '{"agentIdentity":"agent_1","batchSize":1,"screening":false,
+       "leads":["+1XXXXXXXXXX"]}'
+```
+
 ## Batch race and abandoned calls
 
 The first leg classified `HUMAN` claims the batch through a synchronous

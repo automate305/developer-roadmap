@@ -60,6 +60,16 @@ monorepo and is not yours to create.
    silently splits the batch registry and legs go missing. Raising this requires
    shared state first, not a config edit.
 
+## Dialing modes
+
+`screening: false` on a session is power-dial mode: the agent is bridged on the
+`in-progress` status callback and **no AMD verdict is ever acted on**. The
+classifier still runs and still records — that is deliberate, and the audit
+rows it produces are how the thresholds get tuned. Do not "fix" the classifier
+call in power-dial mode by making it hang up; a wrong verdict there would drop
+a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
+on the winner claim: Twilio re-delivers status callbacks.
+
 ## Changing AMD behaviour
 
 `amdConfigFingerprint()` in `src/backend/classificationAudit.js` hashes the live

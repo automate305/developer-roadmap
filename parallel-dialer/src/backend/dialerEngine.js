@@ -121,9 +121,13 @@ export class DialerEngine extends EventEmitter {
    * @param {Array<string|object>} opts.leads
    * @param {number} [opts.batchSize] lines per batch (clamped to 1–10)
    * @param {boolean} [opts.autoAdvance] dial the next batch when one resolves
+   * @param {boolean} [opts.screening] when false, run as a power dialer: bridge
+   *   the agent the moment the callee answers and never act on an AMD verdict.
+   *   The classifier still runs and still records, so the agent's own
+   *   disposition becomes ground truth for `scripts/score-amd.mjs`.
    * @returns {Promise<object>} session snapshot
    */
-  async startSession({ agentIdentity, leads, batchSize, autoAdvance = true }) {
+  async startSession({ agentIdentity, leads, batchSize, autoAdvance = true, screening = config.dialer.screening }) {
     const identity = agentIdentity || config.dialer.agentIdentity;
     const normalized = (leads ?? []).map(normalizeLead);
     if (normalized.length === 0) throw new Error('startSession requires at least one lead');
@@ -135,6 +139,7 @@ export class DialerEngine extends EventEmitter {
       agentIdentity: identity,
       state: SessionState.DIALING,
       batchSize: size,
+      screening,
       autoAdvance,
       queue: normalized,
       batchIds: [],
@@ -145,7 +150,7 @@ export class DialerEngine extends EventEmitter {
 
     this.#sessions.set(session.id, session);
     this.emit('session:started', this.snapshotSession(session.id));
-    log.info('session started', { sessionId: session.id, agentIdentity: identity, leads: normalized.length, batchSize: size });
+    log.info('session started', { sessionId: session.id, agentIdentity: identity, leads: normalized.length, batchSize: size, screening });
 
     await this.#dialNextBatch(session);
     return this.snapshotSession(session.id);
@@ -357,6 +362,16 @@ export class DialerEngine extends EventEmitter {
       latencyMs: meta.latencyMs,
       reason: meta.reason,
     });
+
+    // Power-dial mode: the agent is already on the call (or about to be), so
+    // the verdict is recorded for scoring and nothing else. Acting on it here
+    // would hang up on a live human whenever the classifier is wrong — the
+    // failure the audit log exists to make visible, and the one an operator
+    // never sees.
+    if (session && session.screening === false) {
+      this.emit('leg:classified', { ...this.snapshotLeg(leg), classification, acted: false });
+      return this.snapshotLeg(leg);
+    }
 
     if (classification !== 'HUMAN') {
       leg.disposition = classification === 'MACHINE' ? Disposition.MACHINE : Disposition.NO_ANSWER;
@@ -570,10 +585,26 @@ export class DialerEngine extends EventEmitter {
         if (leg.state === LegState.QUEUED) leg.state = LegState.RINGING;
         break;
 
-      case 'in-progress':
+      case 'in-progress': {
         leg.answeredAt = leg.answeredAt ?? Date.now();
         if (leg.state === LegState.RINGING || leg.state === LegState.QUEUED) leg.state = LegState.ANSWERED;
+
+        // Power-dial mode bridges on answer rather than on a verdict. Guard on
+        // `connectedAt` as well as the winner claim: Twilio re-delivers status
+        // callbacks, and `#claimWinner` returns true again for a leg that has
+        // already won.
+        const answeredSession = this.#sessions.get(leg.sessionId);
+        if (answeredSession && answeredSession.screening === false && !leg.connectedAt) {
+          const answeredBatch = this.#batches.get(leg.batchId);
+          if (answeredBatch && this.#claimWinner(answeredBatch, leg.id)) {
+            leg.disposition = Disposition.HUMAN;
+            answeredSession.stats.humans += 1;
+            answeredSession.state = SessionState.IN_CALL;
+            await this.#connectToAgent(answeredBatch, leg);
+          }
+        }
         break;
+      }
 
       case 'completed':
       case 'busy':
@@ -696,6 +727,7 @@ export class DialerEngine extends EventEmitter {
       agentIdentity: session.agentIdentity,
       state: session.state,
       batchSize: session.batchSize,
+      screening: session.screening,
       remainingLeads: session.queue.length,
       stats: { ...session.stats },
       startedAt: session.startedAt,
