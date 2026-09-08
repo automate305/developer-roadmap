@@ -383,7 +383,7 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
     <div className="dialer">
       <header className="dialer__header">
         <div>
-          <h1 className="dialer__title">Parallel Dialer</h1>
+          <h1 className="dialer__title">A305 Dialer</h1>
           <p className="dialer__subtitle">Agent workstation · {identity}</p>
         </div>
         <span className={`badge badge--${STATUS_TONE[status]}`} role="status" aria-live="polite">
