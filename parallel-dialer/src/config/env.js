@@ -99,6 +99,10 @@ export const config = Object.freeze({
     clientSecret: str('HUBSPOT_CLIENT_SECRET'),
     signatureMaxAgeMs: int('HUBSPOT_SIGNATURE_MAX_AGE_MS', 300000),
     queueConcurrency: int('HUBSPOT_QUEUE_CONCURRENCY', 2),
+    // Call activities that exhaust their retries land here rather than
+    // vanishing. Put this on a volume that survives a restart.
+    deadLetterPath: str('HUBSPOT_DEAD_LETTER_PATH', './data/crm-dead-letter.jsonl'),
+    replayDeadLetterOnBoot: bool('HUBSPOT_REPLAY_DEAD_LETTER_ON_BOOT', true),
   },
 });
 

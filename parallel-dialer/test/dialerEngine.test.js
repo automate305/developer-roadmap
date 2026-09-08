@@ -93,6 +93,22 @@ describe('DialerEngine batch race', () => {
     assert.match(harness.redirected[1].twiml, /Sorry for the interruption/);
   });
 
+  it('carries the session agent identity on every leg', async () => {
+    // CRM logging reads this; a global default would misattribute calls once a
+    // second agent is dialing.
+    const session = await harness.engine.startSession({
+      agentIdentity: 'agent_7',
+      leads: LEADS,
+      batchSize: 3,
+      autoAdvance: false,
+    });
+
+    for (const leg of session.currentBatch.legs) {
+      assert.equal(leg.agentIdentity, 'agent_7');
+    }
+    assert.equal(harness.engine.getLeg(session.currentBatch.legs[0].legId).agentIdentity, 'agent_7');
+  });
+
   it('ignores a repeat classification for the same leg', async () => {
     const session = await harness.engine.startSession({ leads: LEADS, batchSize: 3, autoAdvance: false });
     const [first] = session.currentBatch.legs;
