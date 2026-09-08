@@ -23,6 +23,14 @@ const accountInput = z.object({
   imapUser: optionalText,
   imapPassword: optionalText,
   maxDaily: z.coerce.number().int().min(1, 'Daily cap must be at least 1.').max(2000),
+  timezone: z.string().trim().min(1).default('America/New_York'),
+  sendWindowStartHour: z.coerce.number().int().min(0).max(23),
+  sendWindowEndHour: z.coerce.number().int().min(0).max(23),
+  sendDays: z.array(z.coerce.number().int().min(1).max(7)).min(1, 'Pick at least one sending day.'),
+  jitterMinutes: z.coerce.number().int().min(0).max(240),
+  warmupEnabled: z.coerce.boolean(),
+  warmupInitialDaily: z.coerce.number().int().min(1).max(500),
+  warmupDailyIncrement: z.coerce.number().int().min(1).max(500),
 });
 
 function readForm(formData: FormData) {
@@ -41,6 +49,15 @@ function readForm(formData: FormData) {
     imapUser: formData.get('imapUser') ?? '',
     imapPassword: formData.get('imapPassword') ?? '',
     maxDaily: formData.get('maxDaily') ?? 50,
+    timezone: formData.get('timezone') || 'America/New_York',
+    sendWindowStartHour: formData.get('sendWindowStartHour') ?? 8,
+    sendWindowEndHour: formData.get('sendWindowEndHour') ?? 17,
+    // Checkbox groups arrive as repeated entries.
+    sendDays: formData.getAll('sendDays').map(String),
+    jitterMinutes: formData.get('jitterMinutes') ?? 45,
+    warmupEnabled: formData.get('warmupEnabled') === 'on',
+    warmupInitialDaily: formData.get('warmupInitialDaily') ?? 5,
+    warmupDailyIncrement: formData.get('warmupDailyIncrement') ?? 5,
   });
 }
 
@@ -59,6 +76,8 @@ export async function createSendingAccount(
         imapHost: parsed.imapHost || null,
         imapUser: parsed.imapUser || null,
         imapPassword: encryptOptionalSecret(parsed.imapPassword),
+        // Warmup counts from the moment the mailbox is created.
+        warmupStartedAt: parsed.warmupEnabled ? new Date() : null,
       },
     });
 

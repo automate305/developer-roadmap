@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { LeadStatus, CampaignStatus, type Lead, type SequenceStep } from './generated/prisma';
 import { getEmailQueue, sendJobId } from './queue';
+import { withJitter } from './schedule';
 
 /** A lead in one of these states is eligible for further sends. */
 export const SENDABLE_LEAD_STATUSES = [LeadStatus.UNCONTACTED, LeadStatus.IN_SEQUENCE] as const;
@@ -30,23 +31,55 @@ export function addDays(from: Date, days: number): Date {
  * already-running campaign.
  */
 export async function scheduleCampaignLeads(campaignId: string, now = new Date()): Promise<number> {
+  const campaign = await prisma.campaign.findUnique({
+    where: { id: campaignId },
+    include: { sendingAccount: { select: { jitterMinutes: true } } },
+  });
+  if (!campaign) return 0;
+
   const firstStep = await prisma.sequenceStep.findFirst({
     where: { campaignId },
     orderBy: { stepOrder: 'asc' },
   });
   if (!firstStep) return 0;
 
-  const result = await prisma.lead.updateMany({
+  const base = addDays(now, firstStep.delayDays);
+  const jitter = campaign.sendingAccount?.jitterMinutes ?? 0;
+
+  const pending = await prisma.lead.findMany({
     where: {
       campaignId,
       status: LeadStatus.UNCONTACTED,
       currentStep: 0,
       nextSendAt: null,
     },
-    data: { nextSendAt: addDays(now, firstStep.delayDays) },
+    select: { id: true },
   });
+  if (pending.length === 0) return 0;
 
-  return result.count;
+  if (jitter <= 0) {
+    const result = await prisma.lead.updateMany({
+      where: { id: { in: pending.map((lead) => lead.id) } },
+      data: { nextSendAt: base },
+    });
+    return result.count;
+  }
+
+  // Each lead gets its own moment inside the spread. Enrolling a list on one
+  // timestamp makes every lead due at once, and the batch leaves as a burst.
+  const CHUNK = 100;
+  for (let offset = 0; offset < pending.length; offset += CHUNK) {
+    await prisma.$transaction(
+      pending.slice(offset, offset + CHUNK).map((lead) =>
+        prisma.lead.update({
+          where: { id: lead.id },
+          data: { nextSendAt: withJitter(base, jitter) },
+        }),
+      ),
+    );
+  }
+
+  return pending.length;
 }
 
 /** Clears pending schedule for a campaign, used when it is paused or completed. */
@@ -67,6 +100,7 @@ export async function advanceLead(
   lead: Pick<Lead, 'id' | 'campaignId'>,
   sentStepOrder: number,
   now = new Date(),
+  jitterMinutes = 0,
 ): Promise<{ nextStep: SequenceStep | null }> {
   const nextStep = await prisma.sequenceStep.findFirst({
     where: { campaignId: lead.campaignId, stepOrder: { gt: sentStepOrder } },
@@ -79,7 +113,7 @@ export async function advanceLead(
       status: LeadStatus.IN_SEQUENCE,
       currentStep: sentStepOrder,
       lastContactedAt: now,
-      nextSendAt: nextStep ? addDays(now, nextStep.delayDays) : null,
+      nextSendAt: nextStep ? withJitter(addDays(now, nextStep.delayDays), jitterMinutes) : null,
     },
   });
 

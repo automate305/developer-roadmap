@@ -2,6 +2,7 @@ import nodemailer, { type Transporter } from 'nodemailer';
 import { prisma } from './prisma';
 import type { SendingAccount } from './generated/prisma';
 import { decryptSecret } from './crypto';
+import { effectiveDailyCap } from './schedule';
 
 export type OutboundMessage = {
   to: string;
@@ -90,8 +91,11 @@ export async function reserveDailySend(accountId: string, now = new Date()): Pro
   if (!account) return { allowed: false, reason: 'inactive', retryAt: null };
   if (!account.isActive) return { allowed: false, reason: 'inactive', retryAt: null };
 
+  // During warmup this is below maxDaily and climbs each day.
+  const cap = effectiveDailyCap(account, now);
+
   const sentToday = isSameUtcDay(account.lastResetAt, now) ? account.sentToday : 0;
-  if (sentToday >= account.maxDaily) {
+  if (sentToday >= cap) {
     return { allowed: false, reason: 'cap_reached', retryAt: nextUtcMidnight(now) };
   }
 
@@ -105,7 +109,7 @@ export async function reserveDailySend(accountId: string, now = new Date()): Pro
     return reserveDailySend(accountId, now);
   }
 
-  return { allowed: true, remaining: account.maxDaily - (sentToday + 1) };
+  return { allowed: true, remaining: cap - (sentToday + 1) };
 }
 
 /** Returns a claimed slot when a send ultimately fails, so the cap is not burnt. */

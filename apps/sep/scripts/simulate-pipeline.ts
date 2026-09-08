@@ -21,10 +21,17 @@ import { scheduleCampaignLeads, findDueLeads } from '../lib/sequence';
 import { optOutByToken, unsubscribePageUrl, oneClickUnsubscribeUrl } from '../lib/unsubscribe';
 import { encryptSecret, decryptSecret, isEncrypted } from '../lib/crypto';
 import { classifyBounce, classifySmtpError, isSuppressed, SOFT_BOUNCE_LIMIT } from '../lib/bounce';
+import {
+  isWithinWindow,
+  nextWindowOpen,
+  localParts,
+  effectiveDailyCap,
+  warmupDaysRemaining,
+} from '../lib/schedule';
 import { SuppressionReason } from '../lib/generated/prisma';
 import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
 import { GET as trackOpen } from '../app/api/track/open/route';
-import type { MailSender, OutboundMessage } from '../lib/mailer';
+import { reserveDailySend, type MailSender, type OutboundMessage } from '../lib/mailer';
 
 const TAG = 'SIMULATION';
 const APP_URL = 'http://sim.local';
@@ -77,6 +84,13 @@ async function main() {
       smtpUser: 'sim',
       smtpPassword: 'sim',
       maxDaily: 25,
+      // The pipeline sections below assert exact timing, so this mailbox sends
+      // around the clock with no spread. Windows and jitter get their own
+      // section, where they are the thing under test.
+      sendDays: [1, 2, 3, 4, 5, 6, 7],
+      sendWindowStartHour: 0,
+      sendWindowEndHour: 23,
+      jitterMinutes: 0,
     },
   });
 
@@ -680,6 +694,223 @@ async function main() {
 
   await prisma.suppressedAddress.deleteMany({
     where: { email: { in: ['dead@sim-hvac.test', 'busy@sim-hvac.test'] } },
+  });
+
+  // ------------------------------------------ sending windows and warmup ---
+  section('11. Sends respect the mailbox window and warmup ramp');
+
+  const miami = {
+    timezone: 'America/New_York',
+    sendWindowStartHour: 8,
+    sendWindowEndHour: 17,
+    sendDays: [1, 2, 3, 4, 5],
+  };
+
+  // 2026-09-09 is a Wednesday. 14:00 UTC is 10:00 in Miami; 04:00 UTC is 00:00.
+  const wednesdayMorning = new Date('2026-09-09T14:00:00Z');
+  const wednesdayMidnight = new Date('2026-09-09T04:00:00Z');
+  const saturdayMorning = new Date('2026-09-12T14:00:00Z');
+
+  check('a weekday mid-morning is inside the window', isWithinWindow(wednesdayMorning, miami));
+  check('local midnight is outside it', !isWithinWindow(wednesdayMidnight, miami));
+  check('a Saturday is outside it', !isWithinWindow(saturdayMorning, miami));
+
+  const opensAfterMidnight = nextWindowOpen(wednesdayMidnight, miami);
+  check(
+    'the next opening from midnight is the same working day',
+    isWithinWindow(opensAfterMidnight, miami) &&
+      opensAfterMidnight.getTime() - wednesdayMidnight.getTime() <= 9 * 60 * 60 * 1000,
+    opensAfterMidnight.toISOString(),
+  );
+
+  const opensAfterSaturday = nextWindowOpen(saturdayMorning, miami);
+  const mondayParts = localParts(opensAfterSaturday, miami.timezone);
+  check(
+    'a Saturday defers to Monday',
+    isWithinWindow(opensAfterSaturday, miami) && mondayParts.weekday === 1,
+    `${opensAfterSaturday.toISOString()} weekday ${mondayParts.weekday}`,
+  );
+
+  // Daylight saving: Miami is UTC-5 in January and UTC-4 in July. A fixed offset
+  // would put one of these outside the window.
+  check(
+    'the window holds across daylight saving',
+    isWithinWindow(new Date('2026-01-14T14:00:00Z'), miami) &&
+      isWithinWindow(new Date('2026-07-15T14:00:00Z'), miami),
+  );
+
+  // A lead due outside the window is deferred, not sent.
+  const nightAccount = await prisma.sendingAccount.create({
+    data: {
+      name: `${TAG} night mailbox`,
+      fromName: 'Cam',
+      fromEmail: `night-${Date.now()}@automate305.test`,
+      smtpHost: 'smtp.invalid',
+      smtpPort: 587,
+      smtpUser: 'sim',
+      smtpPassword: 'sim',
+      maxDaily: 50,
+      // A window that has already closed for every hour of every day.
+      sendDays: [1, 2, 3, 4, 5],
+      sendWindowStartHour: 9,
+      sendWindowEndHour: 10,
+      jitterMinutes: 0,
+    },
+  });
+  const nightCampaign = await prisma.campaign.create({
+    data: {
+      name: `${TAG} night campaign`,
+      status: CampaignStatus.ACTIVE,
+      sendingAccountId: nightAccount.id,
+      steps: { create: [{ stepOrder: 1, delayDays: 0, subject: 'Hi', body: 'Hello.' }] },
+      leads: { create: [{ email: 'night@sim-hvac.test', firstName: 'Nox', nextSendAt: new Date() }] },
+    },
+    include: { leads: true },
+  });
+
+  const messagesBeforeWindow = sentMessages.length;
+  const nightLead = nightCampaign.leads[0];
+  const outsideWindow = new Date('2026-09-09T04:00:00Z');
+  const windowOutcome = await processSendJob(
+    { leadId: nightLead.id, campaignId: nightCampaign.id, stepOrder: 1 },
+    { sendMail: fakeSender, appUrl: APP_URL, now: () => outsideWindow },
+  );
+  check(
+    'a lead due outside the window is deferred',
+    windowOutcome.status === 'deferred' && windowOutcome.reason === 'outside_send_window',
+    JSON.stringify(windowOutcome),
+  );
+  check('nothing was sent outside the window', sentMessages.length === messagesBeforeWindow);
+
+  const deferredLead = await prisma.lead.findUniqueOrThrow({ where: { id: nightLead.id } });
+  check(
+    'it was rescheduled into the window',
+    Boolean(deferredLead.nextSendAt) &&
+      isWithinWindow(deferredLead.nextSendAt!, {
+        timezone: nightAccount.timezone,
+        sendWindowStartHour: nightAccount.sendWindowStartHour,
+        sendWindowEndHour: nightAccount.sendWindowEndHour,
+        sendDays: nightAccount.sendDays,
+      }),
+    deferredLead.nextSendAt?.toISOString(),
+  );
+
+  // Enrolment spreads a list rather than making every lead due at once.
+  const burstAccount = await prisma.sendingAccount.create({
+    data: {
+      name: `${TAG} spread mailbox`,
+      fromName: 'Cam',
+      fromEmail: `spread-${Date.now()}@automate305.test`,
+      smtpHost: 'smtp.invalid',
+      smtpPort: 587,
+      smtpUser: 'sim',
+      smtpPassword: 'sim',
+      maxDaily: 50,
+      sendDays: [1, 2, 3, 4, 5, 6, 7],
+      sendWindowStartHour: 0,
+      sendWindowEndHour: 23,
+      jitterMinutes: 60,
+    },
+  });
+  const burstCampaign = await prisma.campaign.create({
+    data: {
+      name: `${TAG} spread campaign`,
+      status: CampaignStatus.ACTIVE,
+      sendingAccountId: burstAccount.id,
+      steps: { create: [{ stepOrder: 1, delayDays: 0, subject: 'Hi', body: 'Hello.' }] },
+      leads: {
+        create: Array.from({ length: 12 }, (_, index) => ({
+          email: `spread-${index}@sim-hvac.test`,
+          firstName: `Lead${index}`,
+        })),
+      },
+    },
+  });
+
+  await scheduleCampaignLeads(burstCampaign.id);
+  const spreadLeads = await prisma.lead.findMany({
+    where: { campaignId: burstCampaign.id },
+    select: { nextSendAt: true },
+  });
+  const distinctTimes = new Set(spreadLeads.map((lead) => lead.nextSendAt?.toISOString()));
+  check(
+    'enrolling a list spreads it instead of making every lead due at once',
+    distinctTimes.size > 1,
+    `${distinctTimes.size} distinct send times across ${spreadLeads.length} leads`,
+  );
+
+  await prisma.campaign.delete({ where: { id: burstCampaign.id } });
+  await prisma.sendingAccount.delete({ where: { id: burstAccount.id } });
+
+  // Warmup: the effective cap climbs daily until it meets the ceiling.
+  const day = 24 * 60 * 60 * 1000;
+  const warmup = {
+    maxDaily: 50,
+    warmupEnabled: true,
+    warmupStartedAt: new Date('2026-09-01T00:00:00Z'),
+    warmupInitialDaily: 5,
+    warmupDailyIncrement: 5,
+  };
+  check(
+    'day one sends the starting volume',
+    effectiveDailyCap(warmup, new Date('2026-09-01T12:00:00Z')) === 5,
+    String(effectiveDailyCap(warmup, new Date('2026-09-01T12:00:00Z'))),
+  );
+  check(
+    'the cap climbs each day',
+    effectiveDailyCap(warmup, new Date(warmup.warmupStartedAt.getTime() + 3 * day)) === 20,
+    String(effectiveDailyCap(warmup, new Date(warmup.warmupStartedAt.getTime() + 3 * day))),
+  );
+  check(
+    'it never exceeds the ceiling',
+    effectiveDailyCap(warmup, new Date(warmup.warmupStartedAt.getTime() + 60 * day)) === 50,
+  );
+  check(
+    'warmup progress is reported',
+    warmupDaysRemaining(warmup, new Date(warmup.warmupStartedAt.getTime() + 3 * day)) === 6,
+    String(warmupDaysRemaining(warmup, new Date(warmup.warmupStartedAt.getTime() + 3 * day))),
+  );
+  check(
+    'a mailbox not warming up uses its full cap',
+    effectiveDailyCap({ ...warmup, warmupEnabled: false }, new Date()) === 50,
+  );
+
+  // A warming mailbox stops at today's ramped cap, not the ceiling.
+  const warmingAccount = await prisma.sendingAccount.create({
+    data: {
+      name: `${TAG} warming mailbox`,
+      fromName: 'Cam',
+      fromEmail: `warm-${Date.now()}@automate305.test`,
+      smtpHost: 'smtp.invalid',
+      smtpPort: 587,
+      smtpUser: 'sim',
+      smtpPassword: 'sim',
+      maxDaily: 50,
+      warmupEnabled: true,
+      warmupStartedAt: new Date(),
+      warmupInitialDaily: 2,
+      warmupDailyIncrement: 5,
+      sendDays: [1, 2, 3, 4, 5, 6, 7],
+      sendWindowStartHour: 0,
+      sendWindowEndHour: 23,
+      jitterMinutes: 0,
+    },
+  });
+
+  const firstClaim = await reserveDailySend(warmingAccount.id);
+  const secondClaim = await reserveDailySend(warmingAccount.id);
+  const thirdClaim = await reserveDailySend(warmingAccount.id);
+  check('the first send of a warming mailbox is allowed', firstClaim.allowed);
+  check('the second is allowed', secondClaim.allowed);
+  check(
+    'the third exceeds day one and is capped',
+    !thirdClaim.allowed && thirdClaim.reason === 'cap_reached',
+    JSON.stringify(thirdClaim),
+  );
+
+  await prisma.campaign.delete({ where: { id: nightCampaign.id } });
+  await prisma.sendingAccount.deleteMany({
+    where: { id: { in: [nightAccount.id, warmingAccount.id] } },
   });
 
   if (!keep) {

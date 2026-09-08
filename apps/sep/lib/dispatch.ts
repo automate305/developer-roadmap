@@ -21,6 +21,7 @@ import {
 import { advanceLead, completeCampaignIfDrained, isHalted, addDays } from './sequence';
 import { releaseDailySend, reserveDailySend, smtpSender, type MailSender } from './mailer';
 import { classifySmtpError, isSuppressed, recordSoftBounce, suppressAddress } from './bounce';
+import { isWithinWindow, nextWindowOpen, withJitter } from './schedule';
 import { SuppressionReason } from './generated/prisma';
 
 /** One scheduled sequence step for one lead. */
@@ -101,6 +102,14 @@ export async function processSendJob(
 
   const account = lead.campaign.sendingAccount;
   if (!account) return { status: 'skipped', reason: 'no_sending_account' };
+
+  // The mailbox only sends inside its own working hours. A lead that comes due
+  // outside them is pushed to the next opening rather than sent at 3am.
+  if (!isWithinWindow(now, account)) {
+    const opensAt = withJitter(nextWindowOpen(now, account), account.jitterMinutes);
+    await prisma.lead.update({ where: { id: lead.id }, data: { nextSendAt: opensAt } });
+    return { status: 'deferred', reason: 'outside_send_window', retryAt: opensAt };
+  }
 
   const quota = await reserveDailySend(account.id, now);
   if (!quota.allowed) {
@@ -194,7 +203,7 @@ export async function processSendJob(
       data: { messageId: result.messageId },
     });
 
-    await advanceLead(lead, step.stepOrder, now);
+    await advanceLead(lead, step.stepOrder, now, account.jitterMinutes);
     await completeCampaignIfDrained(lead.campaignId);
 
     return { status: 'sent', emailLogId: emailLog.id, messageId: result.messageId };

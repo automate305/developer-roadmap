@@ -101,6 +101,29 @@ where you keep other production secrets. Rotating it means decrypting with the
 old key and re-encrypting with the new one; the `v1:` prefix is there to make
 that possible without ambiguity.
 
+## Sending windows and warmup
+
+Both live on the mailbox, because sending reputation is judged per address.
+
+**Window.** Each mailbox has a timezone, an hour range and a set of weekdays,
+defaulting to 08:00–17:00 Monday to Friday in `America/New_York`. A lead that
+comes due outside the window is rescheduled to the next opening rather than
+sent — cold email arriving at 03:00 local reads as automated to a person and as
+bulk to a filter. Timezone handling goes through `Intl`, so a Miami mailbox
+follows daylight saving without a fixed offset drifting an hour twice a year.
+
+**Jitter.** `jitterMinutes` (default 45) spreads scheduled sends. Enrolling a
+list used to stamp every lead with the same `nextSendAt`, so a campaign of 500
+became due in the same instant and left as a burst; each lead now gets its own
+moment inside the spread, and each follow-up step is offset too.
+
+**Warmup.** A new mailbox opening at fifty a day is a spam-filter signal. With
+`warmupEnabled`, the effective cap starts at `warmupInitialDaily` and climbs by
+`warmupDailyIncrement` each day until it meets `maxDaily`. The quota check uses
+the ramped figure, so nothing else in the pipeline needs to know.
+
+None of this changes what the send path does — only when it is allowed to run.
+
 ## Bounces and suppression
 
 A delivery report arrives from the postmaster, not from the lead, so the failed

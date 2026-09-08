@@ -156,6 +156,22 @@ model SendingAccount {
   sentToday   Int      @default(0)
   lastResetAt DateTime @default(now())
 
+  // Sending window, in this mailbox's own timezone. Cold email landing at 03:00
+  // reads as automated, so sends are confined to working hours.
+  timezone            String @default("America/New_York")
+  sendWindowStartHour Int    @default(8)
+  sendWindowEndHour   Int    @default(17)
+  /// ISO weekdays, 1 = Monday through 7 = Sunday. Defaults to weekdays.
+  sendDays            Int[]  @default([1, 2, 3, 4, 5])
+  /// Random spread applied to each scheduled step, so sends do not leave in a burst.
+  jitterMinutes       Int    @default(45)
+
+  // Warmup ramp. A new mailbox opening at full volume is a spam-filter signal.
+  warmupEnabled        Boolean   @default(false)
+  warmupStartedAt      DateTime?
+  warmupInitialDaily   Int       @default(5)
+  warmupDailyIncrement Int       @default(5)
+
   isActive Boolean @default(true)
 
   campaigns Campaign[]
