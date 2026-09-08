@@ -97,6 +97,9 @@ model Lead {
 
   status LeadStatus @default(UNCONTACTED)
 
+  // Opaque token behind the unsubscribe link and the RFC 8058 headers.
+  unsubscribeToken String @unique @default(cuid())
+
   // Highest stepOrder already delivered. 0 means nothing sent yet.
   currentStep Int       @default(0)
   // When the next step becomes eligible. Null once the sequence is exhausted.

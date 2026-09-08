@@ -72,6 +72,25 @@ handing the message to SMTP, so a reply that lands mid-job still wins the race.
 The scheduler independently skips those leads, and a halted lead has its
 `nextSendAt` cleared.
 
+## Unsubscribing
+
+Every lead carries an opaque `unsubscribeToken`, and every outbound message
+offers two ways out:
+
+- A footer link to `/unsubscribe/<token>`. That page does **not** opt anyone out
+  on GET, because corporate link scanners fetch every link in inbound mail and
+  would silently unsubscribe people who never clicked. The visitor confirms with
+  a POST.
+- RFC 8058 one-click headers (`List-Unsubscribe` and `List-Unsubscribe-Post`),
+  so the recipient's own mail client shows a native unsubscribe button. That
+  POSTs to `/api/unsubscribe?t=<token>` and acts immediately, as the RFC
+  requires. Scanners do not POST, so this path is safe to action without
+  confirmation.
+
+Either route sets the lead to `OPTED_OUT`, stamps `optedOutAt` and clears
+`nextSendAt`, which is what cancels every remaining step. Repeat requests are
+idempotent, and an unknown token changes nothing and reveals nothing.
+
 ## Templating
 
 Subjects and bodies support `{{firstName}}`, `{{lastName}}`, `{{company}}`,

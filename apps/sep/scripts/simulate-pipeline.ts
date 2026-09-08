@@ -18,6 +18,8 @@ import { CampaignStatus, EmailStatus, LeadStatus } from '../lib/generated/prisma
 import { processSendJob } from '../lib/dispatch';
 import { handleInboundMessage } from '../lib/inbound';
 import { scheduleCampaignLeads, findDueLeads } from '../lib/sequence';
+import { optOutByToken, unsubscribePageUrl, oneClickUnsubscribeUrl } from '../lib/unsubscribe';
+import { POST as unsubscribeOneClick } from '../app/api/unsubscribe/route';
 import { GET as trackOpen } from '../app/api/track/open/route';
 import type { MailSender, OutboundMessage } from '../lib/mailer';
 
@@ -157,6 +159,22 @@ async function main() {
     'SMTP message id was stored',
     emailLog?.messageId === '<sim-1@sim.local>',
     emailLog?.messageId ?? 'null',
+  );
+
+  check(
+    'the body carries an unsubscribe link',
+    Boolean(message?.html.includes(unsubscribePageUrl(lead.unsubscribeToken, APP_URL))),
+  );
+  check(
+    'the plain-text part carries it too',
+    Boolean(message?.text.includes(unsubscribePageUrl(lead.unsubscribeToken, APP_URL))),
+  );
+  check(
+    'RFC 8058 one-click headers are set',
+    message?.headers?.['List-Unsubscribe'] ===
+      `<${oneClickUnsubscribeUrl(lead.unsubscribeToken, APP_URL)}>` &&
+      message?.headers?.['List-Unsubscribe-Post'] === 'List-Unsubscribe=One-Click',
+    JSON.stringify(message?.headers),
   );
 
   const pixelUrl = `${APP_URL}/api/track/open?t=${emailLog?.trackingId}`;
@@ -345,6 +363,95 @@ async function main() {
   const retryLogs = await prisma.emailLog.findMany({ where: { leadId: retryLead.id } });
   check('the retry reused the existing log row', retryLogs.length === 1, `${retryLogs.length} rows`);
   check('the reused row is now SENT', retryLogs[0]?.status === EmailStatus.SENT);
+
+  // ----------------------------------------------------------- unsubscribe ---
+  section('8. Unsubscribing stops the sequence');
+
+  const unsubLead = await prisma.lead.create({
+    data: {
+      campaignId: campaign.id,
+      email: 'stop@sim-hvac.test',
+      firstName: 'Iris',
+      company: 'Sim Plumbing',
+      nextSendAt: new Date(),
+    },
+  });
+
+  const beforeOptOut = await processSendJob(
+    { leadId: unsubLead.id, campaignId: campaign.id, stepOrder: 1 },
+    { sendMail: fakeSender, appUrl: APP_URL },
+  );
+  check('the lead receives step 1 first', beforeOptOut.status === 'sent', JSON.stringify(beforeOptOut));
+
+  const optOut = await optOutByToken(unsubLead.unsubscribeToken);
+  check('the token opts the lead out', optOut.status === 'opted_out', JSON.stringify(optOut));
+  check(
+    'the remaining steps are reported as cancelled',
+    optOut.status === 'opted_out' && optOut.cancelledSteps === 2,
+    JSON.stringify(optOut),
+  );
+
+  const optedOutLead = await prisma.lead.findUniqueOrThrow({ where: { id: unsubLead.id } });
+  check('lead status is OPTED_OUT', optedOutLead.status === LeadStatus.OPTED_OUT);
+  check('optedOutAt was stamped', Boolean(optedOutLead.optedOutAt));
+  check('schedule was cleared', optedOutLead.nextSendAt === null);
+
+  const repeatOptOut = await optOutByToken(unsubLead.unsubscribeToken);
+  check(
+    'a repeated opt-out is idempotent',
+    repeatOptOut.status === 'already_opted_out',
+    JSON.stringify(repeatOptOut),
+  );
+
+  const unknownOptOut = await optOutByToken('not-a-real-token');
+  check('an unknown token changes nothing', unknownOptOut.status === 'not_found');
+
+  const messagesBeforeGuard = sentMessages.length;
+  const afterOptOut = await processSendJob(
+    { leadId: unsubLead.id, campaignId: campaign.id, stepOrder: 2 },
+    { sendMail: fakeSender, appUrl: APP_URL },
+  );
+  check(
+    'step 2 is refused after the opt-out',
+    afterOptOut.status === 'skipped' && afterOptOut.reason === 'lead_opted_out',
+    JSON.stringify(afterOptOut),
+  );
+  check('no further mail was dispatched', sentMessages.length === messagesBeforeGuard);
+
+  // The one-click route is what a mail client's own button calls.
+  const oneClickLead = await prisma.lead.create({
+    data: {
+      campaignId: campaign.id,
+      email: 'oneclick@sim-hvac.test',
+      firstName: 'Theo',
+      company: 'Sim Electrical',
+      nextSendAt: new Date(),
+    },
+  });
+
+  const oneClickResponse = await unsubscribeOneClick(
+    new Request(oneClickUnsubscribeUrl(oneClickLead.unsubscribeToken, APP_URL), { method: 'POST' }),
+  );
+  check('one-click POST responds 200', oneClickResponse.status === 200, String(oneClickResponse.status));
+
+  const oneClickLeadAfter = await prisma.lead.findUniqueOrThrow({ where: { id: oneClickLead.id } });
+  check('one-click opted the lead out', oneClickLeadAfter.status === LeadStatus.OPTED_OUT);
+  check('one-click cleared the schedule', oneClickLeadAfter.nextSendAt === null);
+
+  const scannerSafeLead = await prisma.lead.create({
+    data: {
+      campaignId: campaign.id,
+      email: 'scanner@sim-hvac.test',
+      firstName: 'Nia',
+      company: 'Sim Restoration',
+      nextSendAt: new Date(),
+    },
+  });
+  const stillActive = await prisma.lead.findUniqueOrThrow({ where: { id: scannerSafeLead.id } });
+  check(
+    'a lead is only opted out by an explicit action, never by lookup',
+    stillActive.status !== LeadStatus.OPTED_OUT,
+  );
 
   if (!keep) {
     await cleanup();

@@ -13,6 +13,11 @@ import { CampaignStatus, EmailStatus } from './generated/prisma';
 import { env } from './env';
 import { leadVariables, renderTemplate } from './template';
 import { bodyToHtml, htmlToPlainText, injectTrackingPixel } from './tracking';
+import {
+  unsubscribeFooterHtml,
+  unsubscribeFooterText,
+  unsubscribeHeaders,
+} from './unsubscribe';
 import { advanceLead, completeCampaignIfDrained, isHalted, addDays } from './sequence';
 import { releaseDailySend, reserveDailySend, smtpSender, type MailSender } from './mailer';
 
@@ -97,8 +102,12 @@ export async function processSendJob(
   const subject = renderTemplate(step.subject, vars);
   const trackingId = randomUUID();
   const renderedBody = renderTemplate(step.body, vars);
-  const html = injectTrackingPixel(bodyToHtml(renderedBody), trackingId, deps.appUrl);
-  const text = htmlToPlainText(bodyToHtml(renderedBody));
+  // Every outbound message carries a way out, in the body and in the headers.
+  const bodyHtml = bodyToHtml(renderedBody) + unsubscribeFooterHtml(lead.unsubscribeToken, deps.appUrl);
+  const html = injectTrackingPixel(bodyHtml, trackingId, deps.appUrl);
+  const text =
+    htmlToPlainText(bodyToHtml(renderedBody)) +
+    unsubscribeFooterText(lead.unsubscribeToken, deps.appUrl);
 
   // The log row is written before dispatch so an open beacon that races the
   // SMTP response still finds a row to stamp. A retry of a previously failed
@@ -161,6 +170,7 @@ export async function processSendJob(
       html,
       text,
       headers: {
+        ...unsubscribeHeaders(lead.unsubscribeToken, deps.appUrl),
         'X-SEP-Tracking-Id': trackingId,
         'X-SEP-Campaign-Id': lead.campaignId,
         'X-SEP-Lead-Id': lead.id,
