@@ -149,25 +149,30 @@ textarea:focus-visible {
 }
 
 .app { position: relative; z-index: 1; display: flex; justify-content: center; padding: 32px 16px 64px; }
-.dialer { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 17px; }
-
-/* Two working surfaces: what you set up on the left, what you watch on the
-   right. Columns are equal because neither is subordinate — during a live
-   call the right side is the one that matters. */
-.dialer__cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 17px;
-  align-items: start;
-}
-.dialer__col { display: flex; flex-direction: column; gap: 17px; min-width: 0; }
-
-/* Below this the two columns stop earning their width and the panels get
-   too narrow for the dial list to be usable. */
-@media (max-width: 940px) {
-  .dialer__cols { grid-template-columns: minmax(0, 1fr); }
-}
+/* One wide column throughout — a call center tool is read top-to-bottom
+   within a tab, not split into competing panes. */
+.shell { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 17px; }
 .mono { font-family: var(--mono); font-size: 0.92em; }
+
+/* ── tabs ───────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs__item {
+  appearance: none; cursor: pointer;
+  padding: 11px 4px; margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent;
+  background: none; color: var(--muted);
+  font-family: inherit; font-size: 13px; font-weight: 650;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.tabs__item + .tabs__item { margin-left: 18px; }
+.tabs__item:hover { color: var(--text); }
+.tabs__item--active { color: var(--text); border-bottom-color: var(--purple); }
+.tab-panel { display: flex; flex-direction: column; gap: 17px; }
+/* `.tab-panel{display:flex}` and the UA `[hidden]{display:none}` tie on
+   specificity, and source order would let this rule win — so the
+   Campaigns tab-panel would stay visually flat even while `hidden`. */
+.tab-panel[hidden] { display: none; }
+.tab { display: flex; flex-direction: column; gap: 17px; }
 
 /* ── header ─────────────────────────────────────────────────────────────── */
 .dialer__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
@@ -187,6 +192,15 @@ textarea:focus-visible {
   font-size: 9px; font-weight: 850; letter-spacing: 1px;
 }
 .badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 6px 11px; border-radius: 99px;
+  border: 1px solid var(--action-line); background: var(--action-bg);
+  color: var(--action-text);
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.pill--muted { border-color: var(--line); background: var(--chip-bg); color: var(--muted); }
 
 .badge--good { color: var(--good-text); background: var(--good-bg); border-color: var(--good-line); }
 .badge--good .badge__dot { background: var(--good); box-shadow: 0 0 8px var(--good-glow); }
@@ -228,6 +242,8 @@ textarea:focus-visible {
    under the agent's cursor. */
 .panel--idle { border-style: dashed; }
 .idle__text { margin: 0; color: var(--faint); font-size: 12px; }
+.panel--outcome { border-color: var(--good-line); }
+.outcome__number { margin: -4px 0 2px; color: var(--faint); }
 
 .panel__title {
   margin: 0;
@@ -278,6 +294,9 @@ textarea:focus-visible {
   color: var(--label);
   font-size: 8px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
 }
+.field--block { display: flex; width: 100%; }
+.btn--block { width: 100%; justify-content: center; }
+.row--end { justify-content: flex-end; margin-left: auto; }
 
 /* Light frosted fields on the dark shell — an OUTBOX signature. */
 .field input,
@@ -299,6 +318,25 @@ textarea:focus-visible {
 .textarea::placeholder { color: var(--field-placeholder); }
 .field input:focus, .textarea:focus { border-color: var(--field-focus-line); box-shadow: var(--field-focus-shadow); }
 .textarea:disabled, .field input:disabled { opacity: 0.55; }
+
+/* ── CSV import ─────────────────────────────────────────────────────────── */
+.panel--import { gap: 20px; }
+.import__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.import__heading { margin: 6px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.6px; }
+.import__body { display: flex; flex-direction: column; gap: 16px; }
+.file-row { display: flex; align-items: center; gap: 12px; }
+.file-row__name { color: var(--field-text); font-size: 13px; }
+/* The frosted field styling extends to the filename readout so the whole
+   row reads as one control, matching the paste field beneath it. */
+.file-row {
+  border: 1px solid var(--field-border);
+  background: var(--field-surface);
+  box-shadow: var(--field-shadow);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px 7px 7px;
+}
+.import__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.import__hint strong { color: var(--good-text); font-weight: 700; }
 
 /* ── mode selector ──────────────────────────────────────────────────────── */
 /* Two cards rather than a dropdown: the choice changes what the agent hears
@@ -360,6 +398,66 @@ textarea:focus-visible {
 .log__row--warn .log__msg { color: var(--warn-text); }
 .log__row--error .log__msg { color: var(--bad-text); }
 .log__row--muted .log__msg { color: var(--log-muted); }
+
+.empty-state { margin: 0; color: var(--faint); font-size: 13px; line-height: 1.6; }
+.empty-state strong { color: var(--text); font-weight: 650; }
+
+.select, .search {
+  min-height: 39px; padding: 0 11px;
+  border: 1px solid var(--field-border);
+  background: var(--field-surface);
+  color: var(--field-text);
+  box-shadow: var(--field-shadow);
+  border-radius: var(--radius-sm);
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+  outline: 0;
+}
+.search { min-width: 220px; }
+.select:focus, .search:focus { border-color: var(--field-focus-line); box-shadow: var(--field-focus-shadow); }
+
+/* ── spreadsheet ────────────────────────────────────────────────────────── */
+.sheet { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.sheet__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sheet__table th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 10px 12px; text-align: left;
+  background: var(--panel-2);
+  color: var(--dt); font-size: 9px; font-weight: 850; letter-spacing: 0.8px; text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.sheet__table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--log-text);
+  white-space: nowrap;
+}
+.sheet__table tr:last-child td { border-bottom: 0; }
+.sheet__table tbody tr:hover td { background: #ffffff05; }
+.sheet__ellipsis { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.sheet__empty { text-align: center; color: var(--faint); padding: 22px 12px !important; }
+.sheet__table--lists td, .sheet__table--reports td { white-space: normal; }
+
+.status-pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 99px;
+  background: var(--chip-bg); border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px; font-weight: 700;
+}
+.status-pill--human { color: var(--good-text); background: var(--good-bg); border-color: var(--good-line); }
+.status-pill--machine { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.status-pill--no_answer, .status-pill--failed, .status-pill--busy { color: var(--faint); }
+.status-pill--abandoned { color: var(--bad-text); background: var(--bad-bg); border-color: var(--bad-line); }
+
+/* ── report tiles ───────────────────────────────────────────────────────── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.tile { background: var(--panel); padding: 14px 16px; }
+.tile dt { margin: 0; color: var(--dt); font-size: 8px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase; }
+.tile dd { margin: 7px 0 0; font-size: 24px; letter-spacing: -0.7px; }
+.tile--good dd { color: var(--good-text); }
+.tile--warn dd { color: var(--warn-text); }
+.reports__note { margin: 4px 0 0; color: var(--faint); font-size: 11.5px; }
 
 /* ── narrow screens ─────────────────────────────────────────────────────── */
 @media (max-width: 640px) {

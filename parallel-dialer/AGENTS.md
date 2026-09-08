@@ -70,6 +70,20 @@ call in power-dial mode by making it hang up; a wrong verdict there would drop
 a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
 on the winner claim: Twilio re-delivers status callbacks.
 
+## Frontend tabs and where their data lives
+
+The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
+Lists, Reports. Contacts, Lists, Reports, and an agent's logged call outcomes
+(`Meeting booked` / `Follow up` / `Not interested`) are **client-side state in
+`localStorage`** (`src/frontend/lib/storage.js`) — there is no backend model
+for a contact, a list, or an outcome. Only the engine's own AMD dispositions
+(HUMAN/MACHINE/NO_ANSWER/…) reach HubSpot, via the existing call-activity
+path. Do not assume a `logOutcome` call or an imported contact reaches the
+backend — it doesn't yet. If you're asked to make any of this durable or
+shared across agents, that's new backend surface (storage, auth beyond the
+one shared `DIALER_API_KEY`, an endpoint for an agent's outcome) — say so
+rather than quietly wiring a frontend call to an endpoint that isn't there.
+
 ## Changing AMD behaviour
 
 `amdConfigFingerprint()` in `src/backend/classificationAudit.js` hashes the live

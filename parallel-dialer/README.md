@@ -84,6 +84,32 @@ curl -X POST http://localhost:3000/api/sessions \
        "leads":["+1XXXXXXXXXX"]}'
 ```
 
+## Workstation tabs
+
+The frontend is four tabs sharing one masthead: **Campaigns** (the dial
+session above), **Contacts** (CSV import and a spreadsheet view), **Lists**
+(every import as a named batch you can hand to a campaign), and **Reports**
+(dialed / connects / meetings booked, per session).
+
+The flow is Contacts → Lists → Campaigns → Reports: import a CSV, start a
+campaign from the list it becomes, dial, and land on Reports when the
+campaign ends. Column matching is header-driven — `company`, `first_name`,
+`last_name`, `title`, `email`, `phone1` (the cell — the number the dialer
+actually calls), `phone2`, `company_url`, `linkedin`, `signal`, `status`, with
+common aliases (`cell`, `mobile`, `website`, …) recognized automatically.
+
+**Contacts, lists, session history, and meeting-booked outcomes live in the
+browser's `localStorage` today — there is no backend model for any of them.**
+That is a scope line, not an oversight: the dialer's own state (sessions,
+legs, the HubSpot write) is what has to be right before any of this needs a
+server home too. Concretely, this means: it resets if you clear site data,
+it does not sync between agents or machines, and a meeting an agent logs
+after a call does not yet reach the HubSpot timeline — only the engine's own
+AMD dispositions (HUMAN/MACHINE/NO_ANSWER/…) do. Durable, shared contacts and
+reporting is real backend work — a database, real per-agent auth beyond the
+one shared `DIALER_API_KEY`, and an endpoint to attach an agent's outcome to
+a call — and is deliberately out of scope here.
+
 ## Batch race and abandoned calls
 
 The first leg classified `HUMAN` claims the batch through a synchronous
@@ -136,7 +162,12 @@ the abandonment rate faster than they raise connect rate.
 | `src/backend/routes/twiml.js` | Twilio voice webhooks |
 | `src/backend/routes/api.js` | Token, session control, SSE activity feed |
 | `src/backend/routes/webhooks.js` | HubSpot lead intake |
-| `src/frontend/DialerDevice.jsx` | The agent workstation |
+| `src/frontend/App.jsx` | Masthead, tabs, and the state shared across them (contacts, lists, session history) |
+| `src/frontend/DialerDevice.jsx` | The Campaigns tab — device, dial list, live call, activity |
+| `src/frontend/tabs/ContactsTab.jsx` | CSV import and the contacts spreadsheet |
+| `src/frontend/tabs/ListsTab.jsx` | Every import as a named batch, with "Start campaign" |
+| `src/frontend/tabs/ReportsTab.jsx` | Dialed / connects / meetings booked, per session |
+| `src/frontend/lib/csv.js` | CSV parsing and column auto-matching |
 
 ## Setup
 

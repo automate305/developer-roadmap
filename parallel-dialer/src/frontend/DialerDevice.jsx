@@ -1,5 +1,5 @@
 /**
- * DialerDevice.jsx — WebRTC agent workstation.
+ * DialerDevice.jsx — WebRTC agent workstation. Rendered as the Campaigns tab.
  *
  * Owns the Twilio Voice `Device` lifecycle and the agent's view of a dialing
  * session:
@@ -38,24 +38,51 @@ const STATUS_TONE = {
 
 const MAX_LOG_ENTRIES = 200;
 
+/** Outcomes an agent can log by hand once a call ends. The dialer's own AMD
+ * verdicts (HUMAN/MACHINE/NO_ANSWER/…) come from the engine, not this — this
+ * is what the agent decided about a conversation that actually happened. */
+const OUTCOMES = [
+  { key: 'meeting', label: 'Meeting booked', tone: 'good' },
+  { key: 'callback', label: 'Follow up' },
+  { key: 'not_interested', label: 'Not interested' },
+];
+
 /**
  * @param {object} props
  * @param {string} [props.apiBase] backend origin; defaults to same-origin
  * @param {string} [props.identity] client identity, must match the backend's
  * @param {string} [props.apiKey] shared secret sent as `x-dialer-key`
+ * @param {{ text: string, listName: string, token: number }} [props.loadRequest]
+ *   set by the parent (e.g. "Start campaign" on the Lists tab) to replace the
+ *   dial list; `token` must change on every request so the same list can be
+ *   loaded twice in a row.
+ * @param {(entry: { phone: string, disposition: string, at: number }) => void} [props.onLegEnded]
+ *   fired for every leg the engine reports ended, win or lose — this is how
+ *   Contacts learns a number's last outcome.
+ * @param {(summary: object) => void} [props.onSessionEnded] fired once a
+ *   session is stopped or exhausts its queue.
  */
-export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKey = '' }) {
+export default function DialerDevice({
+  apiBase = '',
+  identity = 'agent_1',
+  apiKey = '',
+  loadRequest = null,
+  onLegEnded,
+  onSessionEnded,
+}) {
   const [status, setStatus] = useState(AgentStatus.OFFLINE);
   const [error, setError] = useState(null);
   const [muted, setMuted] = useState(false);
   const [autoAnswer, setAutoAnswer] = useState(true);
   const [pendingCall, setPendingCall] = useState(null);
   const [callInfo, setCallInfo] = useState(null);
+  const [lastEndedCall, setLastEndedCall] = useState(null);
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
   const [events, setEvents] = useState([]);
 
   const [leadsText, setLeadsText] = useState('');
+  const [activeListName, setActiveListName] = useState(null);
   const [batchSize, setBatchSize] = useState(4);
   // 'power'  → one line, agent bridged on answer, no AMD verdict acted on.
   // 'parallel' → N lines, the AMD verdict picks who reaches the agent.
@@ -64,11 +91,21 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
   const effectiveBatchSize = screening ? Number(batchSize) : 1;
   const [session, setSession] = useState(null);
   const [starting, setStarting] = useState(false);
+  const [meetingsBooked, setMeetingsBooked] = useState(0);
+  const sessionMetaRef = useRef(null); // { startedAt, mode, listName, leadsTotal }
 
   const deviceRef = useRef(null);
   const callRef = useRef(null);
   const callTimerRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
+
+  // A list handed over from the Lists tab replaces the dial list. `token`
+  // changes on every request so re-sending the same list still applies.
+  useEffect(() => {
+    if (!loadRequest) return;
+    setLeadsText(loadRequest.text);
+    setActiveListName(loadRequest.listName);
+  }, [loadRequest]);
 
   /** Auth headers for the control plane. */
   const authHeaders = useMemo(() => (apiKey ? { 'x-dialer-key': apiKey } : {}), [apiKey]);
@@ -105,6 +142,7 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
       call.on('accept', () => {
         setStatus(AgentStatus.IN_CALL);
         setPendingCall(null);
+        setLastEndedCall(null);
         setMuted(call.isMuted());
         setCallInfo({
           from: call.parameters?.From ?? 'unknown',
@@ -123,12 +161,17 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
         }
         callRef.current = null;
         setPendingCall(null);
-        setCallInfo(null);
         setInputLevel(0);
         setOutputLevel(0);
         setMuted(false);
         setStatus((current) => (current === AgentStatus.ERROR ? current : AgentStatus.READY));
         pushEvent('info', label);
+        // A connected call is worth asking about; one that never connected
+        // (canceled/rejected before answer) is not.
+        setCallInfo((info) => {
+          if (info) setLastEndedCall({ from: info.from, endedAt: Date.now() });
+          return null;
+        });
       };
 
       call.on('disconnect', () => teardown('Call ended'));
@@ -277,7 +320,39 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
     pushEvent('info', 'Hang up requested');
   }, [pushEvent]);
 
+  const logOutcome = useCallback(
+    (outcomeKey) => {
+      const label = OUTCOMES.find((o) => o.key === outcomeKey)?.label ?? outcomeKey;
+      if (outcomeKey === 'meeting') setMeetingsBooked((n) => n + 1);
+      pushEvent('success', `Logged: ${label}`, lastEndedCall?.from);
+      setLastEndedCall(null);
+    },
+    [pushEvent, lastEndedCall],
+  );
+
   // ──────────────────────────────────────────────────── session control ────
+
+  const finishSession = useCallback(
+    (finalSnapshot) => {
+      const meta = sessionMetaRef.current;
+      if (meta && onSessionEnded) {
+        onSessionEnded({
+          id: `session-${meta.startedAt}`,
+          startedAt: meta.startedAt,
+          endedAt: Date.now(),
+          mode,
+          listName: meta.listName,
+          leadsTotal: meta.leadsTotal,
+          stats: finalSnapshot?.stats ?? session?.stats ?? {},
+          meetingsBooked,
+        });
+      }
+      sessionMetaRef.current = null;
+      setSession(null);
+      setMeetingsBooked(0);
+    },
+    [mode, meetingsBooked, onSessionEnded, session],
+  );
 
   const startSession = useCallback(async () => {
     const leads = leadsText
@@ -302,6 +377,8 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || body.error || 'Failed to start session');
 
+      sessionMetaRef.current = { startedAt: Date.now(), listName: activeListName, leadsTotal: leads.length };
+      setMeetingsBooked(0);
       setSession(body);
       pushEvent(
         'success',
@@ -314,18 +391,18 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
     } finally {
       setStarting(false);
     }
-  }, [leadsText, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent]);
+  }, [leadsText, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent, activeListName]);
 
   const stopSession = useCallback(async () => {
     if (!session?.sessionId) return;
     try {
       await fetch(`${apiBase}/api/sessions/${session.sessionId}`, { method: 'DELETE', headers: authHeaders });
       pushEvent('warn', 'Dialing session stopped');
-      setSession(null);
+      finishSession(session);
     } catch (err) {
       pushEvent('error', `Could not stop session: ${err.message}`);
     }
-  }, [session, apiBase, authHeaders, pushEvent]);
+  }, [session, apiBase, authHeaders, pushEvent, finishSession]);
 
   // ─────────────────────────────────────────── backend activity feed (SSE) ────
 
@@ -354,7 +431,12 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
           const payload = JSON.parse(message.data);
           const level = name === 'leg:connected' ? 'success' : name === 'leg:ended' ? 'muted' : 'info';
           pushEvent(level, format(payload), payload.transcript || undefined);
-          if (payload.sessionId && name === 'session:exhausted') setSession(null);
+          if (name === 'leg:ended' && payload.phone && onLegEnded) {
+            onLegEnded({ phone: payload.phone, disposition: payload.disposition ?? 'UNKNOWN', at: Date.now() });
+          }
+          if (payload.sessionId && name === 'session:exhausted') {
+            finishSession(payload);
+          }
         } catch {
           /* malformed frame — ignore */
         }
@@ -372,6 +454,7 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
       for (const [name, listener] of bound) source.removeEventListener(name, listener);
       source.close();
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- finishSession/onLegEnded intentionally not in the dep list: re-subscribing on every session start/stop would drop in-flight SSE frames.
   }, [apiBase, apiKey, pushEvent]);
 
   // ─────────────────────────────────────────────────────────────── render ────
@@ -380,203 +463,217 @@ export default function DialerDevice({ apiBase = '', identity = 'agent_1', apiKe
   const inCall = status === AgentStatus.IN_CALL;
 
   return (
-    <div className="dialer">
-      <header className="dialer__header">
-        <div>
-          <h1 className="dialer__title">A305 Dialer</h1>
-          <p className="dialer__subtitle">Agent workstation · {identity}</p>
-        </div>
-        <span className={`badge badge--${STATUS_TONE[status]}`} role="status" aria-live="polite">
-          <span className="badge__dot" aria-hidden="true" />
-          {status}
-        </span>
-      </header>
-
+    <div className="tab tab--campaigns">
       {error && (
         <div className="alert alert--error" role="alert">
           {error}
         </div>
       )}
 
-      <div className="dialer__cols">
-        {/* Left: what the agent sets up before dialing. */}
-        <div className="dialer__col">
-          <section className="panel">
-            <h2 className="panel__title">Device</h2>
-            <div className="row">
-              <button type="button" className="btn btn--primary" onClick={goOnline} disabled={online}>
-                Go online
-              </button>
-              <button type="button" className="btn" onClick={goOffline} disabled={!online}>
-                Go offline
-              </button>
-              <label className="toggle">
-                <input type="checkbox" checked={autoAnswer} onChange={(e) => setAutoAnswer(e.target.checked)} />
-                Auto-answer connected leads
-              </label>
-            </div>
-          </section>
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Device</h2>
+          <span className={`badge badge--${STATUS_TONE[status]}`} role="status" aria-live="polite">
+            <span className="badge__dot" aria-hidden="true" />
+            {status}
+          </span>
+        </div>
+        <div className="row">
+          <button type="button" className="btn btn--primary" onClick={goOnline} disabled={online}>
+            Go online
+          </button>
+          <button type="button" className="btn" onClick={goOffline} disabled={!online}>
+            Go offline
+          </button>
+          <label className="toggle">
+            <input type="checkbox" checked={autoAnswer} onChange={(e) => setAutoAnswer(e.target.checked)} />
+            Auto-answer connected leads
+          </label>
+        </div>
+      </section>
 
-          <section className="panel">
-            <h2 className="panel__title">Dial list</h2>
-            <textarea
-              className="textarea mono"
-              rows={4}
-              placeholder={'+13055550123\n+17865550188\n+19545550142'}
-              value={leadsText}
-              onChange={(e) => setLeadsText(e.target.value)}
-              disabled={Boolean(session)}
+      {pendingCall && (
+        <section className="panel panel--ringing">
+          <h2 className="panel__title">Incoming lead</h2>
+          <p className="mono">{pendingCall.parameters?.From ?? 'unknown number'}</p>
+          <div className="row">
+            <button type="button" className="btn btn--primary" onClick={acceptCall}>
+              Answer
+            </button>
+            <button type="button" className="btn btn--danger" onClick={rejectCall}>
+              Reject
+            </button>
+          </div>
+        </section>
+      )}
+
+      {inCall && (
+        <section className="panel panel--live">
+          <h2 className="panel__title">On call</h2>
+          <dl className="facts">
+            <div>
+              <dt>Number</dt>
+              <dd className="mono">{callInfo?.from ?? '—'}</dd>
+            </div>
+            <div>
+              <dt>Duration</dt>
+              <dd className="mono">{formatDuration(elapsed)}</dd>
+            </div>
+          </dl>
+
+          <div className="meters">
+            <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
+            <Meter label="Lead" value={outputLevel} />
+          </div>
+
+          <div className="row">
+            <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
+              {muted ? 'Unmute' : 'Mute'}
+            </button>
+            <button type="button" className="btn btn--danger" onClick={hangUp}>
+              End call
+            </button>
+          </div>
+        </section>
+      )}
+
+      {lastEndedCall && !inCall && !pendingCall && (
+        <section className="panel panel--outcome">
+          <h2 className="panel__title">How did that go?</h2>
+          <p className="mono outcome__number">{lastEndedCall.from}</p>
+          <div className="row">
+            {OUTCOMES.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                className={`btn ${o.tone === 'good' ? 'btn--primary' : ''}`}
+                onClick={() => logOutcome(o.key)}
+              >
+                {o.label}
+              </button>
+            ))}
+            <button type="button" className="btn btn--ghost" onClick={() => setLastEndedCall(null)}>
+              Skip
+            </button>
+          </div>
+        </section>
+      )}
+
+      {!pendingCall && !inCall && !lastEndedCall && (
+        <section className="panel panel--idle">
+          <h2 className="panel__title">Call</h2>
+          <p className="idle__text">{online ? 'Nothing on the line. A connected lead lands here.' : 'Go online to take calls.'}</p>
+        </section>
+      )}
+
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Dial list</h2>
+          {activeListName && <span className="pill">{activeListName}</span>}
+        </div>
+        <textarea
+          className="textarea mono"
+          rows={5}
+          placeholder={'+13055550123\n+17865550188\n+19545550142'}
+          value={leadsText}
+          onChange={(e) => {
+            setLeadsText(e.target.value);
+            setActiveListName(null);
+          }}
+          disabled={Boolean(session)}
+        />
+        <div className="modes" role="group" aria-label="Dialing mode">
+          <button
+            type="button"
+            className={`mode ${mode === 'power' ? 'mode--on' : ''}`}
+            aria-pressed={mode === 'power'}
+            onClick={() => setMode('power')}
+            disabled={Boolean(session)}
+          >
+            <span className="mode__name">Power dial</span>
+            <span className="mode__note">One line. You hear every call.</span>
+          </button>
+          <button
+            type="button"
+            className={`mode ${mode === 'parallel' ? 'mode--on' : ''}`}
+            aria-pressed={mode === 'parallel'}
+            onClick={() => setMode('parallel')}
+            disabled={Boolean(session)}
+          >
+            <span className="mode__name">Parallel dial</span>
+            <span className="mode__note">Several lines. Voicemails screened out.</span>
+          </button>
+        </div>
+
+        <div className="row">
+          <label className="field">
+            Lines per batch
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={screening ? batchSize : 1}
+              onChange={(e) => setBatchSize(e.target.value)}
+              disabled={Boolean(session) || !screening}
             />
-            <div className="modes" role="group" aria-label="Dialing mode">
-              <button
-                type="button"
-                className={`mode ${mode === 'power' ? 'mode--on' : ''}`}
-                aria-pressed={mode === 'power'}
-                onClick={() => setMode('power')}
-                disabled={Boolean(session)}
-              >
-                <span className="mode__name">Power dial</span>
-                <span className="mode__note">One line. You hear every call.</span>
-              </button>
-              <button
-                type="button"
-                className={`mode ${mode === 'parallel' ? 'mode--on' : ''}`}
-                aria-pressed={mode === 'parallel'}
-                onClick={() => setMode('parallel')}
-                disabled={Boolean(session)}
-              >
-                <span className="mode__name">Parallel dial</span>
-                <span className="mode__note">Several lines. Voicemails screened out.</span>
-              </button>
-            </div>
-
-            <div className="row">
-              <label className="field">
-                Lines per batch
-                <input
-                  type="number"
-                  min={1}
-                  max={10}
-                  value={screening ? batchSize : 1}
-                  onChange={(e) => setBatchSize(e.target.value)}
-                  disabled={Boolean(session) || !screening}
-                />
-              </label>
-              <button
-                type="button"
-                className="btn btn--primary"
-                onClick={startSession}
-                disabled={!online || starting || Boolean(session)}
-              >
-                {starting ? 'Starting…' : 'Start dialing'}
-              </button>
-              <button type="button" className="btn btn--danger" onClick={stopSession} disabled={!session}>
-                Stop
-              </button>
-            </div>
-
-            {session && (
-              <dl className="facts facts--wide">
-                <div>
-                  <dt>Remaining</dt>
-                  <dd className="mono">{session.remainingLeads}</dd>
-                </div>
-                <div>
-                  <dt>Humans</dt>
-                  <dd className="mono">{session.stats?.humans ?? 0}</dd>
-                </div>
-                <div>
-                  <dt>Machines</dt>
-                  <dd className="mono">{session.stats?.machines ?? 0}</dd>
-                </div>
-                <div>
-                  <dt>No answer</dt>
-                  <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
-                </div>
-              </dl>
-            )}
-          </section>
+          </label>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={startSession}
+            disabled={!online || starting || Boolean(session)}
+          >
+            {starting ? 'Starting…' : 'Start dialing'}
+          </button>
+          <button type="button" className="btn btn--danger" onClick={stopSession} disabled={!session}>
+            Stop
+          </button>
         </div>
 
-        {/* Right: what the agent watches while a call is live. The slot
-            is always rendered so answering a call does not reflow the page. */}
-        <div className="dialer__col">
-          {pendingCall && (
-            <section className="panel panel--ringing">
-              <h2 className="panel__title">Incoming lead</h2>
-              <p className="mono">{pendingCall.parameters?.From ?? 'unknown number'}</p>
-              <div className="row">
-                <button type="button" className="btn btn--primary" onClick={acceptCall}>
-                  Answer
-                </button>
-                <button type="button" className="btn btn--danger" onClick={rejectCall}>
-                  Reject
-                </button>
-              </div>
-            </section>
-          )}
-
-          {inCall && (
-            <section className="panel panel--live">
-              <h2 className="panel__title">On call</h2>
-              <dl className="facts">
-                <div>
-                  <dt>Number</dt>
-                  <dd className="mono">{callInfo?.from ?? '—'}</dd>
-                </div>
-                <div>
-                  <dt>Duration</dt>
-                  <dd className="mono">{formatDuration(elapsed)}</dd>
-                </div>
-              </dl>
-
-              <div className="meters">
-                <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
-                <Meter label="Lead" value={outputLevel} />
-              </div>
-
-              <div className="row">
-                <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
-                  {muted ? 'Unmute' : 'Mute'}
-                </button>
-                <button type="button" className="btn btn--danger" onClick={hangUp}>
-                  End call
-                </button>
-              </div>
-            </section>
-          )}
-
-          {!pendingCall && !inCall && (
-            <section className="panel panel--idle">
-              <h2 className="panel__title">Call</h2>
-              <p className="idle__text">
-                {online
-                  ? 'Nothing on the line. A connected lead lands here.'
-                  : 'Go online to take calls.'}
-              </p>
-            </section>
-          )}
-
-          <section className="panel">
-            <div className="panel__head">
-              <h2 className="panel__title">Activity</h2>
-              <button type="button" className="btn btn--ghost" onClick={() => setEvents([])}>
-                Clear
-              </button>
+        {session && (
+          <dl className="facts facts--wide">
+            <div>
+              <dt>Remaining</dt>
+              <dd className="mono">{session.remainingLeads}</dd>
             </div>
-            <ul className="log">
-              {events.length === 0 && <li className="log__empty">Nothing yet.</li>}
-              {events.map((entry) => (
-                <li key={entry.id} className={`log__row log__row--${entry.level}`}>
-                  <time className="log__time mono">{entry.at.toLocaleTimeString()}</time>
-                  <span className="log__msg">{entry.message}</span>
-                  {entry.detail && <span className="log__detail mono">{entry.detail}</span>}
-                </li>
-              ))}
-            </ul>
-          </section>
+            <div>
+              <dt>Humans</dt>
+              <dd className="mono">{session.stats?.humans ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Machines</dt>
+              <dd className="mono">{session.stats?.machines ?? 0}</dd>
+            </div>
+            <div>
+              <dt>No answer</dt>
+              <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Meetings</dt>
+              <dd className="mono">{meetingsBooked}</dd>
+            </div>
+          </dl>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel__head">
+          <h2 className="panel__title">Activity</h2>
+          <button type="button" className="btn btn--ghost" onClick={() => setEvents([])}>
+            Clear
+          </button>
         </div>
-      </div>
+        <ul className="log">
+          {events.length === 0 && <li className="log__empty">Nothing yet.</li>}
+          {events.map((entry) => (
+            <li key={entry.id} className={`log__row log__row--${entry.level}`}>
+              <time className="log__time mono">{entry.at.toLocaleTimeString()}</time>
+              <span className="log__msg">{entry.message}</span>
+              {entry.detail && <span className="log__detail mono">{entry.detail}</span>}
+            </li>
+          ))}
+        </ul>
+      </section>
     </div>
   );
 }
