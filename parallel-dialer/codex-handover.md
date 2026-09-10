@@ -1,9 +1,18 @@
-# Handover: Parallel Dialer — live verification and hardening
+# Handover: Parallel Dialer — backend for the workstation, then live verification
 
-You are picking up a parallel dialer (ConnectAndSell / Orum style) that is fully
-written, unit-tested, and building clean — but has **never placed a real phone
-call**. Your job is to prove the telephony path works end to end against live
-Twilio and Deepgram, fix what breaks, and close the gaps listed at the bottom.
+You are picking up a parallel dialer (ConnectAndSell / Orum style) whose
+telephony core is fully written, unit-tested, and building clean — but has
+**never placed a real phone call**, and whose frontend just grew a surface
+(Contacts, Lists, Reports) that the backend doesn't know about yet. Two lanes
+of work, in this order:
+
+1. **Give Contacts/Lists/Reports a real backend.** They exist only in
+   browser `localStorage` right now — see "The new gap" below. This is
+   yours to do today; nothing external blocks it.
+2. **Gate 1: place a real call.** Proven nowhere yet. Blocked on Cam
+   supplying Twilio/Deepgram/HubSpot credentials and standing up Railway —
+   see "Gate 1" below for what to do while you wait and what to do the
+   moment credentials land.
 
 Do not rewrite the architecture. It was designed deliberately and the reasoning
 is in the code comments. Read before you change.
@@ -17,7 +26,9 @@ is in the code comments. Read before you change.
   #4 `claude/parallel-dialer-webrtc-m6fcwa` (core dialer) →
   #5 `…-hubspot-retries` (durable CRM logging) →
   #6 `…-railway-deploy` →
-  #7 `…-amd-audit` (classification audit + scorer).
+  #7 `…-amd-audit` (classification audit + scorer) →
+  #9 `…-agent-rules` (this file + `AGENTS.md`) →
+  #10 `…-power-mode` (power-dial mode, the tabbed workstation — tip).
   **Work on the tip unless a change genuinely belongs lower down**, and cascade
   merges downward if you do change a lower branch.
 - **Project root:** `parallel-dialer/` — self-contained.
@@ -38,9 +49,14 @@ parallel-dialer/
   src/backend/classificationAudit.js  append-only AMD decision log
   src/backend/twilioClient.js       REST client, hangups, TwiML redirects, tokens
   src/backend/routes/{twiml,api,webhooks}.js
-  src/frontend/DialerDevice.jsx     WebRTC agent workstation
+  src/frontend/App.jsx              masthead, tabs, cross-tab state (localStorage today)
+  src/frontend/DialerDevice.jsx     Campaigns tab: WebRTC agent workstation
+  src/frontend/tabs/ContactsTab.jsx CSV import + contacts spreadsheet
+  src/frontend/tabs/ListsTab.jsx    named imports, "Start campaign"
+  src/frontend/tabs/ReportsTab.jsx  dialed/connects/meetings, per session
+  src/frontend/lib/csv.js           CSV parsing + header auto-matching
   scripts/score-amd.mjs             AMD scorer: latency, confusion matrix
-  test/*.test.js                    64 node:test cases
+  test/*.test.js                    69 node:test cases (backend only — no frontend tests exist)
 ```
 
 ## How it works, in one paragraph
@@ -55,20 +71,100 @@ three timers. The first HUMAN wins the batch and is redirected to
 
 ---
 
+## The new gap — Contacts / Lists / Reports / outcomes have no backend
+
+The workstation (`src/frontend/App.jsx` + `src/frontend/tabs/*`) grew four
+tabs: Campaigns (existing), Contacts, Lists, Reports. The last three are
+**entirely client-side** — `src/frontend/lib/storage.js` wraps
+`localStorage`, and that is the only place any of this data lives today.
+`AGENTS.md` states this as a deliberate scope line, not an oversight, and
+says explicitly: don't quietly wire a frontend call to a backend endpoint
+that isn't there. This handover is you being asked to build that endpoint —
+deliberately, with the design questions below answered first.
+
+**Current shapes**, so you don't have to reverse-engineer them:
+
+```js
+// A contact, from ContactsTab.jsx / App.handleImport
+{ id, company, firstName, lastName, title, email, phone1, phone2,
+  companyUrl, linkedin, signal, status, listId, listName }
+
+// A list, from App.handleImport
+{ id, name, count, dialableCount, importedAt }
+
+// A session summary, from DialerDevice.finishSession, appended on
+// session:exhausted or a manual Stop
+{ id, startedAt, endedAt, mode, listName, leadsTotal, stats, meetingsBooked }
+
+// An outcome, logged from DialerDevice's post-call prompt — currently
+// only ever bumps a client-side counter (logOutcome() in DialerDevice.jsx),
+// never leaves the browser
+{ key: 'meeting' | 'callback' | 'not_interested', phone, at }
+```
+
+**What "done" looks like:**
+
+1. **Persistence for contacts/lists/session history.** This is a single
+   Railway instance with an already-provisioned `/data` volume (see
+   `DEPLOY_RAILWAY.md`) — the existing dead-letter and audit logs are
+   JSONL files on that same volume. A single-file embedded database
+   (`better-sqlite3` against a path under `/data`) fits that pattern and
+   needs no new infrastructure; a JSONL log does not fit here because
+   Contacts needs updates and lookups, not just appends. If you think a
+   real service (Postgres, etc.) is warranted instead, say so and why
+   before building it — that is an infrastructure decision, not a code
+   one, and belongs to Cam.
+2. **An outcome endpoint.** Something like
+   `POST /api/calls/:callSid/outcome { outcome, notes? }` that persists the
+   outcome and writes it into HubSpot via `hubspotService.js` — extend
+   `buildCallBody`/`logCallActivity` or add a follow-up note on the same
+   engagement, whichever the HubSpot API makes cleaner. `DialerDevice`'s
+   `logOutcome()` (line 323) is where the frontend call belongs.
+3. **Thread `contactId`/`name`/`company` through "Start campaign".**
+   `App.handleStartCampaign` currently sends bare phone strings to the
+   Campaigns dial list, discarding everything else on the contact. The
+   session API already accepts lead objects (`normalizeLead` in
+   `dialerEngine.js` takes `{phone, contactId, name, company}`) — nothing
+   stops sending the full object today except that Contacts doesn't carry
+   a HubSpot `contactId` at all (the CSV columns are company/name/etc., not
+   a HubSpot object ID). Decide: does an imported CSV need a `contactId`
+   column, or does the backend resolve one by phone at call time the way
+   `logCallActivity` already falls back to `findContactIdByPhone`? The
+   fallback already exists — you may not need new code here, just to
+   verify it's actually adequate once outcomes need a `contactId` to write
+   to.
+
+Read `AGENTS.md`'s "Frontend tabs and where their data lives" section before
+starting — it says the same thing this section does, written for a colder
+read.
+
+---
+
 ## Already proven — do not redo
 
-- `npm test` → 64 passing (classifier, AMD timers and transitions, batch race,
+- `npm test` → 69 passing (classifier, AMD timers and transitions, batch race,
   abandoned-call path, HMAC validation, queue throttling, CRM retry/dead-letter,
-  audit fingerprinting). No network needed.
+  audit fingerprinting, power-dial mode). No network needed.
 - `npm run build` → clean Vite build.
 - Server boots; `/api/health` responds; `/twiml/outbound` renders
   `<Connect><Stream>` with the leg parameters attached; an unsigned HubSpot
   webhook is rejected 401.
-- Frontend renders correctly headless.
+- Frontend renders correctly headless. The Contacts → Lists → Campaigns →
+  Reports flow (CSV import, column auto-match, "Start campaign" loading
+  normalized numbers, session-end auto-switch to Reports) was driven
+  end-to-end through a real browser via Playwright before this branch was
+  pushed — not just screenshotted per tab. No frontend test suite exists,
+  though; that browser run isn't repeatable by `npm test`.
 
-## Never tested — this is the job
+## Gate 1 — this is blocked on Cam, not on you
 
-Everything involving a real carrier, real audio, or a real CRM write:
+Everything involving a real carrier, real audio, or a real CRM write. None of
+it can be proven without live Twilio/Deepgram/HubSpot credentials and a
+Railway deployment (`DEPLOY_RAILWAY.md`), which is Cam's action, not yours.
+**Do not fake this or mark it done from unit tests — nothing below has ever
+been observed.** If credentials aren't available yet, work the new gap above
+instead and leave this list for when they land; don't invent a workaround
+that skips a real phone call.
 
 1. Whether an outbound leg actually answers into the stream and audio arrives.
 2. Whether Deepgram returns usable interim transcripts on 8 kHz μ-law phone audio.
@@ -124,6 +220,19 @@ These cost real debugging time to find. Do not regress them.
    resampling or buffering to the frame relay puts latency straight into the
    AMD decision the whole design exists to minimise.
 
+8. **A `hidden` tab panel and its own `display` rule can tie on CSS
+   specificity, and source order silently picks the wrong winner.**
+   `src/frontend/styles.css` — `.tab-panel[hidden] { display: none; }` exists
+   because `.tab-panel { display: flex }` (class selector) and the browser's
+   default `[hidden] { display: none }` (attribute selector) are both
+   specificity (0,1,0); without the explicit override, the later
+   author-stylesheet rule wins and a "hidden" tab stays visible and
+   interactive — its inputs `fill()`-able, its buttons clickable, invisibly
+   stacked under whatever tab is actually showing. Found by scripting the CSV
+   import through a real browser, not by screenshotting each tab. If you add
+   a new `[hidden]`-toggled element with its own `display` rule, it needs the
+   same override.
+
 ---
 
 ## Known gaps worth closing
@@ -171,7 +280,7 @@ TwiML App whose Voice Request URL points at
 `POST {PUBLIC_BASE_URL}/twiml/agent-outbound`.
 
 ```bash
-npm test          # 64 unit tests, no network
+npm test          # 69 unit tests, no network
 npm run dev:all   # API on :3000, workstation on :5173
 npm run build
 npm run score:amd # AMD verdicts, latency percentiles, confusion matrix
@@ -193,6 +302,18 @@ Watch `/api/events` (SSE) or the JSON logs to follow the batch. Every leg logs
 ---
 
 ## Definition of done
+
+**The new gap** (do this first — it needs nothing from Cam):
+
+- Contacts, lists and session history survive a server restart, not just a
+  page reload.
+- Logging a call outcome writes to HubSpot, not only a client-side counter.
+- `AGENTS.md` updated to match whatever storage choice you made, the same way
+  it documents everything else load-bearing in this codebase.
+- `npm test` and `npm run build` still clean, and the PR you worked on updated.
+
+**Gate 1** (only once Cam has supplied credentials and a Railway deployment
+exists):
 
 - A live batch dials, one human is bridged to the browser workstation, and the
   other legs drop — observed, not inferred.

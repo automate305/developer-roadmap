@@ -60,6 +60,41 @@ monorepo and is not yours to create.
    silently splits the batch registry and legs go missing. Raising this requires
    shared state first, not a config edit.
 
+## Dialing modes
+
+`screening: false` on a session is power-dial mode: the agent is bridged on the
+`in-progress` status callback and **no AMD verdict is ever acted on**. The
+classifier still runs and still records — that is deliberate, and the audit
+rows it produces are how the thresholds get tuned. Do not "fix" the classifier
+call in power-dial mode by making it hang up; a wrong verdict there would drop
+a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
+on the winner claim: Twilio re-delivers status callbacks.
+
+## Frontend tabs and where their data lives
+
+The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
+Lists, Reports. Contacts, Lists, Reports, and an agent's logged call outcomes
+(`Meeting booked` / `Follow up` / `Not interested`) are **client-side state in
+`localStorage`** (`src/frontend/lib/storage.js`) — there is no backend model
+for a contact, a list, or an outcome. Only the engine's own AMD dispositions
+(HUMAN/MACHINE/NO_ANSWER/…) reach HubSpot, via the existing call-activity
+path. Do not assume a `logOutcome` call or an imported contact reaches the
+backend — it doesn't yet. If you're asked to make any of this durable or
+shared across agents, that's new backend surface (storage, auth beyond the
+one shared `DIALER_API_KEY`, an endpoint for an agent's outcome) — say so
+rather than quietly wiring a frontend call to an endpoint that isn't there.
+
+**The Campaigns tab's "Call notes" card has a transcript section that is not
+a live transcript.** It shows `preConnectTranscriptRef` — whatever Deepgram
+heard during AMD classification, snapshotted onto the call the moment it
+connects. The Deepgram socket is closed the instant a verdict is reached
+(invariant 6 above), before the human conversation even starts, so nothing
+from the actual call is ever captured. The empty-state copy in
+`DialerDevice.jsx` says this outright — keep it that way if you touch that
+card. Wiring real in-call transcription means keeping a media stream open
+past the bridge (or forking the `<Dial>` leg's audio too), which is new
+backend work, not a frontend fix.
+
 ## Changing AMD behaviour
 
 `amdConfigFingerprint()` in `src/backend/classificationAudit.js` hashes the live

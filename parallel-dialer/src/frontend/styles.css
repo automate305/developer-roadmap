@@ -1,31 +1,36 @@
 /**
- * Agent workstation theme.
+ * Agent workstation theme — light shell, OUTBOX accents preserved.
  *
- * The palette is lifted verbatim from OUTBOX (outbox.automate305.com), the
- * Automate305 outbound command center, so the dialer reads as the same product.
- * The first group uses OUTBOX's own variable names; everything after it is a
- * semantic alias or a state shade taken from OUTBOX at its exact value.
+ * The five brand hues (purple/green/amber/red/blue) are OUTBOX's exact
+ * values, unchanged. Everything else — the neutrals, and every *-text/*-bg/
+ * *-line shade derived from those hues — is recomputed for a white shell:
+ * OUTBOX itself is dark, and a pastel tuned to sit on near-black (e.g. the
+ * old --warn-text #e6b966) fails contrast on white. The purple "glow" the
+ * dark theme got from a near-black backdrop instead comes from
+ * --panel-shadow: a soft purple halo cast under white cards.
  *
- * Every colour in this file resolves to a token below. Re-skinning is a matter
- * of replacing this block and nothing else.
+ * Every colour in this file resolves to a token below. Re-skinning is a
+ * matter of replacing this block and nothing else.
  */
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* ── OUTBOX brand palette (verbatim) ───────────────────────────────────── */
-  --bg: #08070d;
-  --panel: #121019;
-  --panel-2: #17131f;
-  --text: #f7f4fb;
-  --muted: #958d9e;
-  --line: #ffffff17;
+  /* ── OUTBOX accent hues (unchanged) ─────────────────────────────────────── */
   --purple: #9b5cf6;
-  --purple-soft: #9b5cf624;
+  --purple-soft: #9b5cf61f;
   --green: #51d99a;
   --amber: #f4bd5f;
   --red: #ff7e70;
   --blue: #65a9ff;
+
+  /* ── Neutrals — purple-tinted, not grey ─────────────────────────────────── */
+  --bg: #f6f3fb;
+  --panel: #ffffff;
+  --panel-2: #f1ecfa;
+  --text: #1e1730;
+  --muted: #6b6478;
+  --line: #e6dff5;
 
   /* ── Semantic aliases for dialer states ────────────────────────────────── */
   --accent: var(--purple);   /* primary action */
@@ -36,75 +41,77 @@
                                 purple primary action */
 
   /* ── Surface treatments ────────────────────────────────────────────────── */
-  --panel-surface: linear-gradient(135deg, #46355c75, #16111f80);
-  --panel-border: #ebddff47;
-  --panel-shadow: 0 24px 60px #03020833, inset 0 1px #ffffff2b, inset 0 -1px #0b07134d;
-  --panel-sheen: linear-gradient(115deg, #ffffff1a, #0000 26% 72%, #be96ff0f);
-  --shell-glow: #692cb41a;
-  --grid-line: #ffffff04;
-  --row-line: #ffffff0d;
-  --chip-bg: #ffffff0a;
+  --panel-surface: linear-gradient(180deg, #ffffff, #fdfbff);
+  --panel-border: #e7dcfa;
+  /* The purple glow: a soft, oversized halo under every card, plus a tight
+     neutral shadow for lift and an inset top highlight for edge definition. */
+  --panel-shadow: 0 28px 54px -26px #9b5cf65c, 0 6px 16px -8px #1e173014, inset 0 1px #ffffff;
+  --panel-sheen: linear-gradient(180deg, #ffffffb0, #ffffff00 45%);
+  --shell-glow: #9b5cf626;
+  --grid-line: #1e17300a;
+  --row-line: #1e17300f;
+  --chip-bg: #9b5cf60f;
 
   /* ── Primary action ────────────────────────────────────────────────────── */
   --action-gradient: linear-gradient(135deg, #8d43e7, #a845f8);
-  --action-shadow: 0 10px 27px #8737d742;
+  --action-shadow: 0 14px 30px -10px #9b5cf673;
   --on-action: #fff;      /* text on the purple gradient */
-  --action-text: #cda8fa;
-  --action-bg: #9b5cf61a;
+  --action-text: #6d28d9;
+  --action-bg: #9b5cf614;
   --action-line: #9b5cf64d;
 
-  /* ── Fields: deliberately light against the dark shell, an OUTBOX signature */
-  --field-surface: linear-gradient(135deg, #f3f1f7c7, #dad4e59e);
-  --field-border: #e0cff4b8;
-  --field-text: #20192a;
-  --field-placeholder: #2f273aa3;
-  --field-shadow: inset 0 1px #ffffff8c, 0 8px 20px #08051224;
-  --field-focus-line: #b87df4f2;
-  --field-focus-shadow: inset 0 1px #ffffffb3, 0 0 0 3px #aa63f22e, 0 10px 24px #0805122e;
-  --focus-ring: #b380ff99;
+  /* ── Fields: tinted lavender slabs, distinct from the white panel ───────── */
+  --field-surface: linear-gradient(135deg, #f4effc, #ebe1f9);
+  --field-border: #d9caf2;
+  --field-text: #1e1730;
+  --field-placeholder: #8a7f9c;
+  --field-shadow: inset 0 1px #ffffffb0, inset 0 -1px #1e17300a;
+  --field-focus-line: #9b5cf6;
+  --field-focus-shadow: inset 0 1px #ffffffb0, 0 0 0 3px #9b5cf640, 0 8px 18px -6px #9b5cf654;
+  --focus-ring: #7c3aed99;
 
   /* ── State shades ──────────────────────────────────────────────────────── */
-  --good-text: #77ddb0;
-  --good-bg: #51d99a0f;
-  --good-line: #51d99a24;
-  --good-glow: #51d99ab3;
-  --good-icon: #68d7a2;
+  --good-text: #15803d;
+  --good-bg: #51d99a14;
+  --good-line: #51d99a40;
+  --good-glow: #51d99a99;
+  --good-icon: #1c9d5c;
 
-  --warn-text: #e6b966;
-  --warn-bg: #f4bd5f14;
-  --warn-line: #f4bd5f2e;
-  --warn-btn-bg: #f4bd5f1a;
+  --warn-text: #92620a;
+  --warn-bg: #f4bd5f1a;
+  --warn-line: #f4bd5f40;
+  --warn-btn-bg: #f4bd5f14;
   --warn-btn-line: #f4bd5f59;
-  --warn-panel-line: #f4bd5f4d;
+  --warn-panel-line: #f4bd5f59;
 
-  --live-text: #8dc2ff;
-  --live-bg: #65a9ff14;
-  --live-line: #65a9ff30;
-  --live-glow: #65a9ffb3;
-  --live-panel-line: #65a9ff4d;
+  --live-text: #1d4ed8;
+  --live-bg: #65a9ff16;
+  --live-line: #65a9ff40;
+  --live-glow: #65a9ff99;
+  --live-panel-line: #65a9ff59;
 
-  --bad-text: #ffaaa0;
-  --bad-bg: #ff7e700f;
-  --bad-line: #ff7e7033;
-  --bad-btn-bg: #ff7e701a;
+  --bad-text: #c0281a;
+  --bad-bg: #ff7e7014;
+  --bad-line: #ff7e7040;
+  --bad-btn-bg: #ff7e7014;
   --bad-btn-line: #ff7e7059;
-  --alert-text: #ffb6ae;
-  --alert-bg: #70282021;
-  --alert-line: #ff7e7038;
+  --alert-text: #a3241a;
+  --alert-bg: #ff7e700d;
+  --alert-line: #ff7e7040;
 
   /* ── Text shades ───────────────────────────────────────────────────────── */
-  --kicker: #786f83;      /* eyebrow / section label */
-  --label: #817688;       /* form labels */
-  --dt: #766d7e;          /* definition terms */
-  --meter-label: #7c7384;
-  --time: #716879;
-  --faint: #756c7d;
-  --log-text: #c3b9cb;
-  --log-muted: #8c8294;
-  --stat: #b4aabd;
+  --kicker: #8a7f9c;      /* eyebrow / section label */
+  --label: #756a8a;       /* form labels */
+  --dt: #8a7f9c;          /* definition terms */
+  --meter-label: #8a7f9c;
+  --time: #a196b3;
+  --faint: #a196b3;
+  --log-text: #2e2640;
+  --log-muted: #6b6478;
+  --stat: #4b3f66;
 
   /* ── Meters ────────────────────────────────────────────────────────────── */
-  --meter-track: #ffffff0f;
+  --meter-track: #1e17300f;
   --meter-fill: linear-gradient(90deg, #7133c4, #a768f5);
 
   --radius: 14px;
@@ -149,8 +156,30 @@ textarea:focus-visible {
 }
 
 .app { position: relative; z-index: 1; display: flex; justify-content: center; padding: 32px 16px 64px; }
-.dialer { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 17px; }
+/* One wide column throughout — a call center tool is read top-to-bottom
+   within a tab, not split into competing panes. */
+.shell { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 17px; }
 .mono { font-family: var(--mono); font-size: 0.92em; }
+
+/* ── tabs ───────────────────────────────────────────────────────────────── */
+.tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.tabs__item {
+  appearance: none; cursor: pointer;
+  padding: 11px 4px; margin-bottom: -1px;
+  border: 0; border-bottom: 2px solid transparent;
+  background: none; color: var(--muted);
+  font-family: inherit; font-size: 13px; font-weight: 650;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.tabs__item + .tabs__item { margin-left: 18px; }
+.tabs__item:hover { color: var(--text); }
+.tabs__item--active { color: var(--text); border-bottom-color: var(--purple); }
+.tab-panel { display: flex; flex-direction: column; gap: 17px; }
+/* `.tab-panel{display:flex}` and the UA `[hidden]{display:none}` tie on
+   specificity, and source order would let this rule win — so the
+   Campaigns tab-panel would stay visually flat even while `hidden`. */
+.tab-panel[hidden] { display: none; }
+.tab { display: flex; flex-direction: column; gap: 17px; }
 
 /* ── header ─────────────────────────────────────────────────────────────── */
 .dialer__header { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
@@ -170,6 +199,15 @@ textarea:focus-visible {
   font-size: 9px; font-weight: 850; letter-spacing: 1px;
 }
 .badge__dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.pill {
+  display: inline-flex; align-items: center;
+  padding: 6px 11px; border-radius: 99px;
+  border: 1px solid var(--action-line); background: var(--action-bg);
+  color: var(--action-text);
+  font-size: 11px; font-weight: 700; white-space: nowrap;
+}
+.pill--muted { border-color: var(--line); background: var(--chip-bg); color: var(--muted); }
 
 .badge--good { color: var(--good-text); background: var(--good-bg); border-color: var(--good-line); }
 .badge--good .badge__dot { background: var(--good); box-shadow: 0 0 8px var(--good-glow); }
@@ -194,7 +232,9 @@ textarea:focus-visible {
   display: flex; flex-direction: column; gap: 13px;
   overflow: hidden;
 }
-/* The diagonal sheen that gives OUTBOX cards their glass edge. */
+/* A soft top-down highlight, not OUTBOX's diagonal glass streak — that read
+   as glare on a white card. Still routed through a token so a future
+   re-skin only touches --panel-sheen. */
 .panel::before {
   content: "";
   position: absolute; inset: 0;
@@ -206,6 +246,30 @@ textarea:focus-visible {
 
 .panel--ringing { border-color: var(--warn-panel-line); }
 .panel--live { border-color: var(--live-panel-line); }
+/* The call slot is always rendered, empty or not, so answering a call swaps
+   the panel's contents instead of inserting a panel and shifting the page
+   under the agent's cursor. */
+.panel--idle { border-style: dashed; }
+.idle__text { margin: 0; color: var(--faint); font-size: 12px; }
+.outcome__number { margin: -4px 0 2px; color: var(--faint); }
+
+/* Present for the life of a campaign, not just mid-call — notes from the
+   last call and the disposition buttons both need to survive the gap
+   before the next one rings. */
+.panel--notes { border-color: var(--purple-soft); }
+.notes__timer {
+  color: var(--action-text);
+  font-size: 13px; font-weight: 700;
+  padding: 3px 9px; border-radius: 99px;
+  background: var(--action-bg);
+}
+.transcript { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 2px; }
+.transcript__label {
+  margin: 0 0 6px;
+  color: var(--dt); font-size: 9px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase;
+}
+.transcript__text { margin: 0; color: var(--log-text); font-size: 13px; line-height: 1.55; }
+.transcript__empty { margin: 0; color: var(--faint); font-size: 12px; line-height: 1.6; }
 
 .panel__title {
   margin: 0;
@@ -232,7 +296,21 @@ textarea:focus-visible {
   transition: filter 120ms ease, opacity 120ms ease;
 }
 .btn:hover:not(:disabled) { filter: brightness(1.22); }
-.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Dimming via opacity alone worked on the old dark shell — a faded light
+   wash still read as visibly lighter than a near-black panel. On white it
+   doesn't: a light-purple button at 45% opacity approaches invisible, not
+   "disabled". Every variant goes flat neutral instead, which also reads
+   more clearly as disabled than a washed-out version of its color. This
+   rule's specificity (.btn + :disabled) already outranks .btn--primary
+   etc., so one declaration covers every button variant. */
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  background: var(--chip-bg);
+  border-color: var(--line);
+  color: var(--faint);
+  box-shadow: none;
+}
 
 .btn--primary {
   border: 0;
@@ -245,6 +323,25 @@ textarea:focus-visible {
 .btn--warn { border-color: var(--warn-btn-line); background: var(--warn-btn-bg); color: var(--warn-text); }
 .btn--ghost { border-color: transparent; background: none; color: var(--muted); font-weight: 650; }
 
+/* Answer/End call read as one green-to-red toggle across the two states a
+   call can be in — solid fills with a colored glow, the same treatment
+   .btn--primary gives the purple actions, so the pairing reads as
+   deliberate rather than a random green button next to a random red one. */
+.btn--go {
+  border: 0;
+  background: linear-gradient(135deg, #1fae6b, #51d99a);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 14px 28px -10px #51d99a80;
+}
+.btn--stop {
+  border: 0;
+  background: linear-gradient(135deg, #e0483a, #ff7e70);
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 14px 28px -10px #ff7e7080;
+}
+
 .toggle {
   display: inline-flex; align-items: center; gap: 8px;
   color: var(--muted); font-size: 12px; cursor: pointer;
@@ -256,8 +353,13 @@ textarea:focus-visible {
   color: var(--label);
   font-size: 8px; font-weight: 800; letter-spacing: 0.7px; text-transform: uppercase;
 }
+.field--block { display: flex; width: 100%; }
+.btn--block { width: 100%; justify-content: center; }
+.row--end { justify-content: flex-end; margin-left: auto; }
 
-/* Light frosted fields on the dark shell — an OUTBOX signature. */
+/* Tinted lavender fields, kept visually distinct from the white panel
+   they sit in — OUTBOX's own fields were light-on-dark; this is the same
+   idea inverted for a light shell. */
 .field input,
 .textarea {
   border: 1px solid var(--field-border);
@@ -278,6 +380,49 @@ textarea:focus-visible {
 .field input:focus, .textarea:focus { border-color: var(--field-focus-line); box-shadow: var(--field-focus-shadow); }
 .textarea:disabled, .field input:disabled { opacity: 0.55; }
 
+/* ── CSV import ─────────────────────────────────────────────────────────── */
+.panel--import { gap: 20px; }
+.import__head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.import__heading { margin: 6px 0 0; font-size: 22px; font-weight: 700; letter-spacing: -0.6px; }
+.import__body { display: flex; flex-direction: column; gap: 16px; }
+.file-row { display: flex; align-items: center; gap: 12px; }
+.file-row__name { color: var(--field-text); font-size: 13px; }
+/* The frosted field styling extends to the filename readout so the whole
+   row reads as one control, matching the paste field beneath it. */
+.file-row {
+  border: 1px solid var(--field-border);
+  background: var(--field-surface);
+  box-shadow: var(--field-shadow);
+  border-radius: var(--radius-sm);
+  padding: 7px 12px 7px 7px;
+}
+.import__hint { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.import__hint strong { color: var(--good-text); font-weight: 700; }
+
+/* ── mode selector ──────────────────────────────────────────────────────── */
+/* Two cards rather than a dropdown: the choice changes what the agent hears
+   and what the system is allowed to hang up on, so it should read as a
+   decision, not a setting. */
+.modes { display: grid; grid-template-columns: repeat(auto-fit, minmax(214px, 1fr)); gap: 10px; margin: 13px 0 15px; }
+.mode {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  padding: 12px 14px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent; color: var(--muted);
+  transition: border-color 120ms ease, background 120ms ease, color 120ms ease;
+}
+.mode:hover:not(:disabled) { border-color: #9b5cf680; color: var(--text); }
+.mode--on {
+  border-color: var(--purple);
+  background: var(--purple-soft);
+  color: var(--text);
+}
+.mode:disabled { opacity: 0.5; cursor: default; }
+.mode__name { font-size: 13px; font-weight: 700; letter-spacing: -0.2px; }
+.mode__note { font-size: 11px; line-height: 1.4; color: var(--muted); }
+.mode--on .mode__note { color: var(--action-text); }
+
 /* ── facts ──────────────────────────────────────────────────────────────── */
 .facts { display: flex; gap: 26px; margin: 0; flex-wrap: wrap; }
 .facts dt { color: var(--dt); font-size: 7px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase; }
@@ -296,7 +441,7 @@ textarea:focus-visible {
 /* ── activity log ───────────────────────────────────────────────────────── */
 .log {
   list-style: none; margin: 0; padding: 0;
-  max-height: 320px; overflow-y: auto;
+  max-height: 380px; overflow-y: auto;
   display: flex; flex-direction: column;
 }
 .log__empty { color: var(--faint); font-size: 11px; padding: 10px 0; }
@@ -314,6 +459,66 @@ textarea:focus-visible {
 .log__row--warn .log__msg { color: var(--warn-text); }
 .log__row--error .log__msg { color: var(--bad-text); }
 .log__row--muted .log__msg { color: var(--log-muted); }
+
+.empty-state { margin: 0; color: var(--faint); font-size: 13px; line-height: 1.6; }
+.empty-state strong { color: var(--text); font-weight: 650; }
+
+.select, .search {
+  min-height: 39px; padding: 0 11px;
+  border: 1px solid var(--field-border);
+  background: var(--field-surface);
+  color: var(--field-text);
+  box-shadow: var(--field-shadow);
+  border-radius: var(--radius-sm);
+  font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+  outline: 0;
+}
+.search { min-width: 220px; }
+.select:focus, .search:focus { border-color: var(--field-focus-line); box-shadow: var(--field-focus-shadow); }
+
+/* ── spreadsheet ────────────────────────────────────────────────────────── */
+.sheet { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.sheet__table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.sheet__table th {
+  position: sticky; top: 0; z-index: 1;
+  padding: 10px 12px; text-align: left;
+  background: var(--panel-2);
+  color: var(--dt); font-size: 9px; font-weight: 850; letter-spacing: 0.8px; text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.sheet__table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--row-line);
+  color: var(--log-text);
+  white-space: nowrap;
+}
+.sheet__table tr:last-child td { border-bottom: 0; }
+.sheet__table tbody tr:hover td { background: var(--chip-bg); }
+.sheet__ellipsis { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.sheet__empty { text-align: center; color: var(--faint); padding: 22px 12px !important; }
+.sheet__table--lists td, .sheet__table--reports td { white-space: normal; }
+
+.status-pill {
+  display: inline-flex; align-items: center;
+  padding: 3px 9px; border-radius: 99px;
+  background: var(--chip-bg); border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10.5px; font-weight: 700;
+}
+.status-pill--human { color: var(--good-text); background: var(--good-bg); border-color: var(--good-line); }
+.status-pill--machine { color: var(--warn-text); background: var(--warn-bg); border-color: var(--warn-line); }
+.status-pill--no_answer, .status-pill--failed, .status-pill--busy { color: var(--faint); }
+.status-pill--abandoned { color: var(--bad-text); background: var(--bad-bg); border-color: var(--bad-line); }
+
+/* ── report tiles ───────────────────────────────────────────────────────── */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; }
+.tile { background: var(--panel); padding: 14px 16px; }
+.tile dt { margin: 0; color: var(--dt); font-size: 8px; font-weight: 850; letter-spacing: 1px; text-transform: uppercase; }
+.tile dd { margin: 7px 0 0; font-size: 24px; letter-spacing: -0.7px; }
+.tile--good dd { color: var(--good-text); }
+.tile--warn dd { color: var(--warn-text); }
+.reports__note { margin: 4px 0 0; color: var(--faint); font-size: 11.5px; }
 
 /* ── narrow screens ─────────────────────────────────────────────────────── */
 @media (max-width: 640px) {

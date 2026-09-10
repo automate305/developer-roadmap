@@ -45,6 +45,71 @@ Machine phrases are checked before greetings, because a voicemail greeting very
 often opens with "Hi" or "Hello". A greeting only counts as human when the whole
 utterance is seven words or fewer.
 
+## Dialing modes
+
+The same engine runs three modes. They differ in one question — *what decides
+that a call reaches the agent* — and that answer sets the risk.
+
+| Mode | Settings | Who decides | Risk it carries |
+| --- | --- | --- | --- |
+| **Power dial** | `batchSize: 1`, `screening: false` | The callee answering | None of the below |
+| **Screened power dial** | `batchSize: 1`, `screening: true` | The AMD verdict | A wrong MACHINE verdict silently drops a live prospect |
+| **Parallel dial** | `batchSize: 3–5`, `screening: true` | The AMD verdict, first HUMAN wins | The above, plus abandoned calls under the FCC's 3% cap |
+
+Setting `screening: false` forces `batchSize` to 1. That is an interlock, not
+tidiness: with screening off the abandoned-call announcement in `classify()`
+never runs, so a second human answering a parallel batch would be hung up on
+silently — the one thing the FCC requires you to announce. One line leaves no
+losing leg, so the case cannot arise.
+
+**Power dial is the place to start**, and not only because it is simplest. One
+line per agent means there is no losing leg, so nothing can be abandoned and
+the 3% rule cannot be breached. Bridging on answer means no classifier verdict
+stands between a prospect and your agent, so the invisible failure — a false
+MACHINE hanging up on a real person who then never hears from you — cannot
+happen.
+
+What makes it more than a fallback: **the classifier still runs in power-dial
+mode, and still records.** Every call writes an audit row with the verdict it
+*would* have given, while your agent's own disposition supplies the truth. Run
+a few hundred power dials and `npm run score:amd` prints a real confusion
+matrix — which is exactly the evidence needed to trust screening, and later
+parallel dialing. The simple mode is how the fast mode earns its thresholds.
+
+```bash
+curl -X POST http://localhost:3000/api/sessions \
+  -H 'Content-Type: application/json' \
+  -H "x-dialer-key: $DIALER_API_KEY" \
+  -d '{"agentIdentity":"agent_1","batchSize":1,"screening":false,
+       "leads":["+1XXXXXXXXXX"]}'
+```
+
+## Workstation tabs
+
+The frontend is four tabs sharing one masthead: **Campaigns** (the dial
+session above), **Contacts** (CSV import and a spreadsheet view), **Lists**
+(every import as a named batch you can hand to a campaign), and **Reports**
+(dialed / connects / meetings booked, per session).
+
+The flow is Contacts → Lists → Campaigns → Reports: import a CSV, start a
+campaign from the list it becomes, dial, and land on Reports when the
+campaign ends. Column matching is header-driven — `company`, `first_name`,
+`last_name`, `title`, `email`, `phone1` (the cell — the number the dialer
+actually calls), `phone2`, `company_url`, `linkedin`, `signal`, `status`, with
+common aliases (`cell`, `mobile`, `website`, …) recognized automatically.
+
+**Contacts, lists, session history, and meeting-booked outcomes live in the
+browser's `localStorage` today — there is no backend model for any of them.**
+That is a scope line, not an oversight: the dialer's own state (sessions,
+legs, the HubSpot write) is what has to be right before any of this needs a
+server home too. Concretely, this means: it resets if you clear site data,
+it does not sync between agents or machines, and a meeting an agent logs
+after a call does not yet reach the HubSpot timeline — only the engine's own
+AMD dispositions (HUMAN/MACHINE/NO_ANSWER/…) do. Durable, shared contacts and
+reporting is real backend work — a database, real per-agent auth beyond the
+one shared `DIALER_API_KEY`, and an endpoint to attach an agent's outcome to
+a call — and is deliberately out of scope here.
+
 ## Batch race and abandoned calls
 
 The first leg classified `HUMAN` claims the batch through a synchronous
@@ -97,7 +162,12 @@ the abandonment rate faster than they raise connect rate.
 | `src/backend/routes/twiml.js` | Twilio voice webhooks |
 | `src/backend/routes/api.js` | Token, session control, SSE activity feed |
 | `src/backend/routes/webhooks.js` | HubSpot lead intake |
-| `src/frontend/DialerDevice.jsx` | The agent workstation |
+| `src/frontend/App.jsx` | Masthead, tabs, and the state shared across them (contacts, lists, session history) |
+| `src/frontend/DialerDevice.jsx` | The Campaigns tab — device, dial list, live call, activity |
+| `src/frontend/tabs/ContactsTab.jsx` | CSV import and the contacts spreadsheet |
+| `src/frontend/tabs/ListsTab.jsx` | Every import as a named batch, with "Start campaign" |
+| `src/frontend/tabs/ReportsTab.jsx` | Dialed / connects / meetings booked, per session |
+| `src/frontend/lib/csv.js` | CSV parsing and column auto-matching |
 
 ## Setup
 
@@ -172,15 +242,24 @@ this to the internet.
 
 ## Theme
 
-The workstation uses the OUTBOX palette (`outbox.automate305.com`), so the dialer
-reads as part of the same product. The eleven brand values are lifted verbatim,
-along with the signature treatments: gradient glass panels, the purple gradient
-primary button, and the light frosted fields on a dark shell.
+The workstation is light — white cards on a soft lavender ground — with OUTBOX's
+five accent hues (purple/green/amber/red/blue) preserved exactly. The "OUTBOX
+verbatim" dark-glass look this shipped with originally is gone; what's kept is
+the accent palette and the two signature moves it's known for: a gradient
+purple primary button, and fields visually distinct from the panel they sit in
+(lavender-tinted, where OUTBOX itself used a light-on-dark version of the same
+idea). The purple glow OUTBOX got for free from a near-black backdrop is now
+`--panel-shadow` — a soft purple halo cast under every white card.
 
 Every colour in `src/frontend/styles.css` resolves to a token in the `:root`
-block, so re-skinning means replacing that block and nothing else. Purple is the
-primary action, which is why the in-call state uses OUTBOX's blue rather than its
-purple: the two need to stay apart at a glance.
+block, so re-skinning means replacing that block and nothing else — the block's
+own comment explains what's fixed (the five accent hues) versus what's
+recomputed for contrast on the current background. Purple is the primary
+action, which is why the in-call state uses blue rather than purple: the two
+need to stay apart at a glance. Answer and End call use a green-to-red pair of
+their own (`.btn--go` / `.btn--stop`), distinct from both — picking up and
+hanging up are the one place in the UI where a phone's own decades-old color
+convention should win over the product's.
 
 ## Tests
 
