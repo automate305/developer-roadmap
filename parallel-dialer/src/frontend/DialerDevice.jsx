@@ -2,11 +2,10 @@
  * DialerDevice.jsx — WebRTC agent workstation. Rendered as the Campaigns tab.
  *
  * Owns the Twilio Voice `Device` lifecycle and the agent's view of a dialing
- * session:
- *
- *   OFFLINE ──register──▶ CONNECTING ──▶ READY ──incoming──▶ RINGING ──▶ IN_CALL
- *      ▲                                   ▲                               │
- *      └──────────── destroy ──────────────┴──────── disconnect ───────────┘
+ * session. `status` moves along the transition table in
+ * ./lib/callStateMachine.js — see that file for the full state diagram and
+ * legal transitions; this component only ever calls `dispatchStatus(event)`,
+ * never `setStatus` directly.
  *
  * The connected lead always arrives as an *inbound* call to this browser: the
  * backend bridges the winning outbound leg with `<Dial><Client>`, so the agent
@@ -16,16 +15,9 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Device } from '@twilio/voice-sdk';
+import { AgentStatus, transition } from './lib/callStateMachine.js';
 
-/** Agent-facing device states. */
-export const AgentStatus = Object.freeze({
-  OFFLINE: 'OFFLINE',
-  CONNECTING: 'CONNECTING',
-  READY: 'READY',
-  RINGING: 'RINGING',
-  IN_CALL: 'IN_CALL',
-  ERROR: 'ERROR',
-});
+export { AgentStatus };
 
 const STATUS_TONE = {
   [AgentStatus.OFFLINE]: 'neutral',
@@ -130,6 +122,21 @@ export default function DialerDevice({
     );
   }, []);
 
+  /** Move `status` along the transition table in ./lib/callStateMachine.js.
+   * Never throws from inside an SDK event handler: an event that isn't legal
+   * from the current state is left alone (with a dev warning) rather than
+   * guessed at. */
+  const dispatchStatus = useCallback((event) => {
+    setStatus((current) => {
+      const next = transition(current, event);
+      if (next === null) {
+        console.warn(`[DialerDevice] ignored ${event} while ${current}`);
+        return current;
+      }
+      return next;
+    });
+  }, []);
+
   const fetchToken = useCallback(async () => {
     const response = await fetch(`${apiBase}/api/token?identity=${encodeURIComponent(identity)}`, {
       headers: authHeaders,
@@ -150,7 +157,7 @@ export default function DialerDevice({
       callRef.current = call;
 
       call.on('accept', () => {
-        setStatus(AgentStatus.IN_CALL);
+        dispatchStatus('ACCEPTED');
         setPendingCall(null);
         setLastEndedCall(null);
         setNotes('');
@@ -180,7 +187,7 @@ export default function DialerDevice({
         setInputLevel(0);
         setOutputLevel(0);
         setMuted(false);
-        setStatus((current) => (current === AgentStatus.ERROR ? current : AgentStatus.READY));
+        dispatchStatus('CALL_ENDED');
         pushEvent('info', label);
         // A connected call is worth asking about; one that never connected
         // (canceled/rejected before answer) is not. This fires the same way
@@ -208,7 +215,7 @@ export default function DialerDevice({
         setOutputLevel(Math.round(output * 100) / 100);
       });
     },
-    [pushEvent],
+    [pushEvent, dispatchStatus],
   );
 
   // ─────────────────────────────────────────────────── device lifecycle ────
@@ -217,7 +224,7 @@ export default function DialerDevice({
     if (deviceRef.current) return;
 
     setError(null);
-    setStatus(AgentStatus.CONNECTING);
+    dispatchStatus('CONNECT');
     pushEvent('info', 'Requesting access token…');
 
     try {
@@ -235,18 +242,18 @@ export default function DialerDevice({
       });
 
       device.on('registered', () => {
-        setStatus(AgentStatus.READY);
+        dispatchStatus('REGISTERED');
         pushEvent('success', `Registered as ${identity}`);
       });
 
       device.on('unregistered', () => {
-        setStatus(AgentStatus.OFFLINE);
+        dispatchStatus('UNREGISTERED');
         pushEvent('warn', 'Device unregistered');
       });
 
       device.on('error', (err) => {
         setError(err.message);
-        setStatus(AgentStatus.ERROR);
+        dispatchStatus('DEVICE_ERROR');
         pushEvent('error', `Device error: ${err.message}`, err.code);
       });
 
@@ -270,7 +277,7 @@ export default function DialerDevice({
           call.accept();
         } else {
           setPendingCall(call);
-          setStatus(AgentStatus.RINGING);
+          dispatchStatus('INCOMING');
         }
       });
 
@@ -278,22 +285,22 @@ export default function DialerDevice({
       await device.register();
     } catch (err) {
       setError(err.message);
-      setStatus(AgentStatus.ERROR);
+      dispatchStatus('DEVICE_ERROR');
       pushEvent('error', `Failed to go online: ${err.message}`);
       deviceRef.current = null;
     }
-  }, [fetchToken, attachCall, identity, pushEvent]);
+  }, [fetchToken, attachCall, identity, pushEvent, dispatchStatus]);
 
   const goOffline = useCallback(() => {
     callRef.current?.disconnect();
     deviceRef.current?.destroy();
     deviceRef.current = null;
     callRef.current = null;
-    setStatus(AgentStatus.OFFLINE);
+    dispatchStatus('GO_OFFLINE');
     setPendingCall(null);
     setCallInfo(null);
     pushEvent('info', 'Went offline');
-  }, [pushEvent]);
+  }, [pushEvent, dispatchStatus]);
 
   // The `incoming` listener closes over `autoAnswer`; a ref keeps it current
   // without tearing down and re-registering the Device on every toggle.
@@ -321,8 +328,8 @@ export default function DialerDevice({
   const rejectCall = useCallback(() => {
     pendingCall?.reject();
     setPendingCall(null);
-    setStatus(AgentStatus.READY);
-  }, [pendingCall]);
+    dispatchStatus('CALL_ENDED');
+  }, [pendingCall, dispatchStatus]);
 
   const toggleMute = useCallback(() => {
     const call = callRef.current;
