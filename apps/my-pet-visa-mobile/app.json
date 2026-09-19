@@ -1,0 +1,48 @@
+{
+  "expo": {
+    "name": "My Pet Visa",
+    "slug": "my-pet-visa",
+    "scheme": "mypetvisa",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#0F4C5C"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mypetviza.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "My Pet Visa uses the camera so you can snap a photo of your pet's vaccination records and travel documents.",
+        "NSPhotoLibraryUsageDescription": "My Pet Visa needs photo access so you can attach pictures of your pet's documents."
+      }
+    },
+    "android": {
+      "package": "com.mypetviza.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0F4C5C"
+      },
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "My Pet Visa needs photo access so you can attach pictures of your pet's documents.",
+          "cameraPermission": "My Pet Visa uses the camera so you can snap a photo of your pet's documents."
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "extra": {
+      "intakeUrl": "",
+      "clinicPhone": "",
+      "clinicEmail": ""
+    }
+  }
+}
