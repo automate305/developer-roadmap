@@ -1,6 +1,6 @@
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
-import { colors, radius, spacing, TAP_TARGET, typography } from '../theme';
+import { colors, fonts, radius, spacing, TAP_TARGET, typography } from '../theme';
 
 interface Props extends TextInputProps {
   label: string;
@@ -29,7 +29,7 @@ export function Field({ label, hint, error, optional, style, ...rest }: Props) {
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs },
-  optional: { color: colors.textMuted, fontWeight: '400' },
+  optional: { color: colors.textMuted, fontFamily: fonts.sans },
   input: {
     minHeight: TAP_TARGET + 4,
     borderWidth: 1.5,
@@ -38,9 +38,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     fontSize: 17,
+    fontFamily: fonts.sans,
     color: colors.text,
     backgroundColor: colors.surface,
   },
   inputError: { borderColor: colors.danger },
-  error: { color: colors.danger, fontSize: 14 },
+  error: { color: colors.danger, fontSize: 14, fontFamily: fonts.sans },
 });

@@ -1,7 +1,7 @@
-# My Pet Visa - mobile intake app
+# PetViza - mobile intake app
 
-A deliberately simple mobile app for [mypetviza.com](https://mypetviza.com), a veterinary
-practice that issues pet travel health certificates. Clients answer a short set of
+A deliberately simple mobile app for [PetViza](https://mypetviza.com), the pet travel
+certificate concierge. Clients answer a short set of
 questions, say which vaccines and documents they already have, and attach photos or
 PDFs - all before they walk in. Staff get a complete, consistent intake every time.
 
@@ -19,7 +19,7 @@ and the web.
 | 4 | Review & send | Summary with Edit links, one "Send" button |
 | - | Done | What to bring, what the clinic will handle, call / email buttons |
 
-Answers autosave on the device, so a client can stop and come back.
+Answers autosave on the device, so a client can stop and come back. Copy uses the site's own voice ("Go farther. Worry less.", "Begin your journey").
 
 ### The core travel questions
 
@@ -71,9 +71,23 @@ Copy `.env.example` to `.env`:
 
 ## Brand palette
 
-All colors live in `src/theme.ts`. The values there are placeholders in a calm
-teal / amber scheme; replace them with the exact hex codes from mypetviza.com and every
-screen updates. Nothing else in the app hard-codes a color.
+Matched to mypetviza.com. The site's CSS variables (HSL) were converted to hex and live in
+`src/theme.ts`, alongside the two logo blues:
+
+| Token | Site variable | Hex |
+| --- | --- | --- |
+| primary (navy) | `--primary: 215 57% 15%` | `#10233C` |
+| primaryLight (hero blue) | `--secondary: 214 48% 86%` | `#CAD9EC` |
+| muted panel | `--muted: 214 32% 95%` | `#EEF2F6` |
+| muted text | `--muted-foreground: 215 21% 42%` | `#556782` |
+| border / input | `--border: 214 28% 84%` | `#CBD5E2` |
+| accent (coral) | `--accent: 2 76% 76%` | `#F09693` |
+| danger | `--destructive: 4 68% 47%` | `#C93126` |
+| brandBlue (logo "Viza") | logo | `#1070B0` |
+
+Fonts match the site too: **DM Sans** for body and UI, **Space Grotesk** for headings,
+loaded through `@expo-google-fonts`. The logo is `assets/petviza-logo.png` (pulled from the
+site) and is also used for the splash screen and Android adaptive icon.
 
 ## Project layout
 

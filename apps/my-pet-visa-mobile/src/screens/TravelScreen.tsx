@@ -9,7 +9,7 @@ import { Screen } from '../components/Screen';
 import { Select } from '../components/Select';
 import { StepHeader } from '../components/StepHeader';
 import { COMMON_COUNTRIES, TRAVEL_MODE_OPTIONS, TRAVEL_TYPE_OPTIONS, US_STATES, YES_NO_UNSURE } from '../data/options';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Intake } from '../types';
 import { daysUntil, isPastDate, isValidDate } from '../utils';
 
@@ -189,6 +189,6 @@ export function TravelScreen({ intake, onChange, onNext, onBack, showErrors }: P
 
 const styles = StyleSheet.create({
   banner: { backgroundColor: colors.warningLight, padding: spacing.md, borderRadius: radius.md },
-  bannerText: { ...typography.body, color: colors.warning, fontWeight: '600' },
+  bannerText: { ...typography.body, color: colors.warning, fontFamily: fonts.sansSemiBold },
   multiline: { minHeight: 96, textAlignVertical: 'top' },
 });

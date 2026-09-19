@@ -7,7 +7,7 @@ import { DateField } from './DateField';
 import { Field } from './Field';
 import type { DocDefinition } from '../data/documents';
 import { DOC_STATUS_OPTIONS } from '../data/options';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { DocumentEntry } from '../types';
 import { daysUntil, isPastDate } from '../utils';
 
@@ -68,14 +68,14 @@ export function DocumentCard({ def, entry: saved, onChange, onRemove, travelDate
         <View style={styles.warn}>
           <Text style={styles.warnText}>
             {expired ? 'This looks expired. ' : 'This expires before your trip. '}
-            We may need to renew it at your visit.
+            We will plan a renewal into your timeline.
           </Text>
         </View>
       ) : null}
 
       {answered && entry.status === 'missing' && def.essential ? (
         <View style={styles.warn}>
-          <Text style={styles.warnText}>No problem. We can take care of this at your appointment.</Text>
+          <Text style={styles.warnText}>No problem. We will map this into your plan.</Text>
         </View>
       ) : null}
 
@@ -102,16 +102,16 @@ const styles = StyleSheet.create({
   essential: {
     alignSelf: 'flex-start',
     fontSize: 12,
-    fontWeight: '700',
-    color: colors.primaryDark,
+    fontFamily: fonts.sansBold,
+    color: colors.primary,
     backgroundColor: colors.primaryLight,
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.pill,
   },
-  remove: { color: colors.danger, fontWeight: '600' },
+  remove: { color: colors.danger, fontFamily: fonts.sansSemiBold },
   dates: { flexDirection: 'row', gap: spacing.md },
   dateCol: { flex: 1 },
   warn: { backgroundColor: colors.warningLight, padding: spacing.md, borderRadius: radius.md },
-  warnText: { ...typography.small, color: colors.warning, fontWeight: '600' },
+  warnText: { ...typography.small, color: colors.warning, fontFamily: fonts.sansSemiBold },
 });

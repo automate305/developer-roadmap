@@ -1,6 +1,6 @@
 import { ActivityIndicator, Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
 
-import { colors, radius, spacing, TAP_TARGET } from '../theme';
+import { colors, fonts, radius, spacing, TAP_TARGET } from '../theme';
 
 type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
 
@@ -49,7 +49,7 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },
-  text: { fontSize: 17, fontWeight: '600' },
+  text: { fontSize: 16, fontFamily: fonts.sansBold, letterSpacing: 0.2 },
   primary: { backgroundColor: colors.primary },
   primaryText: { color: '#fff' },
   secondary: { backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.primary },

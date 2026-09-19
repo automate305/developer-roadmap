@@ -1,3 +1,6 @@
+import { DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold, DMSans_700Bold } from '@expo-google-fonts/dm-sans';
+import { SpaceGrotesk_600SemiBold, SpaceGrotesk_700Bold } from '@expo-google-fonts/space-grotesk';
+import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
@@ -24,6 +27,14 @@ export default function App() {
   const [submitError, setSubmitError] = useState<string | undefined>();
   const [sent, setSent] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [fontsLoaded] = useFonts({
+    DMSans_400Regular,
+    DMSans_500Medium,
+    DMSans_600SemiBold,
+    DMSans_700Bold,
+    SpaceGrotesk_600SemiBold,
+    SpaceGrotesk_700Bold,
+  });
 
   useEffect(() => {
     loadIntake().then(setIntake);
@@ -74,7 +85,7 @@ export default function App() {
     go('done');
   };
 
-  if (!intake) {
+  if (!intake || !fontsLoaded) {
     return (
       <View style={styles.loading}>
         <ActivityIndicator color={colors.primary} size="large" />

@@ -22,7 +22,7 @@ export function getClinicContact(): { phone: string; email: string } {
   const extra = (Constants.expoConfig?.extra ?? {}) as { clinicPhone?: string; clinicEmail?: string };
   return {
     phone: (process.env.EXPO_PUBLIC_CLINIC_PHONE || extra.clinicPhone || '').trim(),
-    email: (process.env.EXPO_PUBLIC_CLINIC_EMAIL || extra.clinicEmail || 'info@mypetviza.com').trim(),
+    email: (process.env.EXPO_PUBLIC_CLINIC_EMAIL || extra.clinicEmail || 'petvizatraveling@gmail.com').trim(),
   };
 }
 

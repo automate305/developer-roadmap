@@ -1,7 +1,7 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { Option } from '../data/options';
-import { colors, radius, spacing, TAP_TARGET, typography } from '../theme';
+import { colors, fonts, radius, spacing, TAP_TARGET, typography } from '../theme';
 
 interface Props<T extends string> {
   label: string;
@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   chipSelected: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  chipText: { fontSize: 16, color: colors.text },
-  chipTextSelected: { color: colors.primaryDark, fontWeight: '600' },
-  error: { color: colors.danger, fontSize: 14 },
+  chipText: { fontSize: 16, fontFamily: fonts.sansMedium, color: colors.text },
+  chipTextSelected: { color: colors.primary, fontFamily: fonts.sansBold },
+  error: { color: colors.danger, fontSize: 14, fontFamily: fonts.sans },
 });

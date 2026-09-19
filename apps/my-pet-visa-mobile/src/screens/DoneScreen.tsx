@@ -5,7 +5,7 @@ import { Card } from '../components/Card';
 import { Screen } from '../components/Screen';
 import { getDocument } from '../data/documents';
 import { getClinicContact } from '../submit';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Intake } from '../types';
 
 interface Props {
@@ -25,16 +25,16 @@ export function DoneScreen({ intake, sent, onNewRequest }: Props) {
         <View style={styles.check}>
           <Text style={styles.checkText}>✓</Text>
         </View>
-        <Text style={typography.title}>{sent ? 'Sent! We have it.' : 'Saved on this phone'}</Text>
+        <Text style={typography.title}>{sent ? 'Sent. We have it.' : 'Saved on this phone'}</Text>
         <Text style={[typography.body, styles.center]}>
           {sent
-            ? `Thanks, ${intake.ownerName.split(' ')[0]}. Our team will review ${intake.petName}'s details and contact you to confirm the appointment and anything specific to ${intake.destination || 'your destination'}.`
-            : `Your answers are saved. Please call or email us to book ${intake.petName}'s exam and bring the original documents.`}
+            ? `Thanks, ${intake.ownerName.split(' ')[0]}. Your PetViza coordinator will review ${intake.petName}'s details and reach out with the right route, the real timing and anything specific to ${intake.destination || 'your destination'}.`
+            : `Your answers are saved. Please email us to schedule ${intake.petName}'s consultation and keep the original documents handy.`}
         </Text>
       </View>
 
       <Card>
-        <Text style={typography.subheading}>Bring the originals to your visit</Text>
+        <Text style={typography.subheading}>Keep these originals handy</Text>
         {bring.length === 0 ? <Text style={typography.small}>Nothing listed yet.</Text> : null}
         {bring.map((d) => (
           <Text key={d.docId} style={typography.body}>
@@ -45,7 +45,7 @@ export function DoneScreen({ intake, sent, onNewRequest }: Props) {
 
       {needs.length ? (
         <Card>
-          <Text style={typography.subheading}>We can help with at your visit</Text>
+          <Text style={typography.subheading}>We will help you get these</Text>
           {needs.map((d) => (
             <Text key={d.docId} style={typography.body}>
               • {getDocument(d.docId)?.label}
@@ -74,6 +74,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkText: { color: '#fff', fontSize: 36, fontWeight: '800' },
+  checkText: { color: '#fff', fontSize: 36, fontFamily: fonts.displayBold },
   center: { textAlign: 'center' },
 });

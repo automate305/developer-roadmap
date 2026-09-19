@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Alert, Image, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Button } from './Button';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Attachment } from '../types';
 import { uid } from '../utils';
 
@@ -119,7 +119,7 @@ const styles = StyleSheet.create({
   },
   thumb: { width: 44, height: 44, borderRadius: radius.sm, backgroundColor: colors.border },
   fileIcon: { alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primaryLight },
-  fileIconText: { fontSize: 12, fontWeight: '700', color: colors.primary },
-  name: { flex: 1, fontSize: 15, color: colors.text },
-  remove: { color: colors.danger, fontWeight: '600' },
+  fileIconText: { fontSize: 12, fontFamily: fonts.sansBold, color: colors.primary },
+  name: { flex: 1, fontSize: 15, fontFamily: fonts.sans, color: colors.text },
+  remove: { color: colors.danger, fontFamily: fonts.sansSemiBold },
 });

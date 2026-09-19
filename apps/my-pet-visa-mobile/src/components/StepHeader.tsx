@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 
 interface Props {
   step: number; // 1-based
@@ -26,7 +26,7 @@ export function StepHeader({ step, total, title, subtitle }: Props) {
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.sm, marginBottom: spacing.sm },
-  stepText: { ...typography.small, fontWeight: '600', color: colors.primary },
+  stepText: { ...typography.small, fontFamily: fonts.sansBold, color: colors.brandBlue, textTransform: 'uppercase', letterSpacing: 0.8, fontSize: 12 },
   track: { height: 6, borderRadius: radius.pill, backgroundColor: colors.border, overflow: 'hidden' },
-  fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
+  fill: { height: '100%', backgroundColor: colors.brandBlue, borderRadius: radius.pill },
 });

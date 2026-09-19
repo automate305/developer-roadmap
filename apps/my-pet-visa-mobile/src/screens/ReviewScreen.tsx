@@ -6,7 +6,7 @@ import { Screen } from '../components/Screen';
 import { StepHeader } from '../components/StepHeader';
 import { getDocument } from '../data/documents';
 import { DOC_STATUS_OPTIONS, SEX_OPTIONS, SPECIES_OPTIONS, TRAVEL_MODE_OPTIONS, YES_NO_UNSURE } from '../data/options';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Intake } from '../types';
 
 interface Props {
@@ -50,7 +50,7 @@ export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, sub
     <Screen
       footer={
         <>
-          <Button title="Send to My Pet Visa" onPress={onSubmit} loading={submitting} />
+          <Button title="Send to PetViza" onPress={onSubmit} loading={submitting} />
           <Button title="Back" variant="ghost" onPress={onBack} disabled={submitting} />
         </>
       }
@@ -114,8 +114,8 @@ export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, sub
       </Card>
 
       <Text style={[typography.small, styles.legal]}>
-        By sending, you agree that My Pet Visa may contact you about this request. Final requirements depend on your
-        destination and are confirmed by our veterinarian.
+        By sending, you agree that PetViza may use these details to respond and plan your route. Final requirements depend on your
+        destination and are confirmed with you personally.
       </Text>
     </Screen>
   );
@@ -123,7 +123,7 @@ export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, sub
 
 const styles = StyleSheet.create({
   sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  edit: { color: colors.primary, fontWeight: '600', fontSize: 16 },
+  edit: { color: colors.brandBlue, fontFamily: fonts.sansBold, fontSize: 16 },
   row: { flexDirection: 'row', gap: spacing.md, paddingVertical: 2 },
   k: { ...typography.small, width: 120 },
   v: { ...typography.body, flex: 1 },

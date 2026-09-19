@@ -10,7 +10,7 @@ import {
   View,
 } from 'react-native';
 
-import { colors, radius, spacing, TAP_TARGET, typography } from '../theme';
+import { colors, fonts, radius, spacing, TAP_TARGET, typography } from '../theme';
 
 interface Props {
   label: string;
@@ -125,7 +125,7 @@ export function Select({
 
 const styles = StyleSheet.create({
   wrap: { gap: spacing.xs },
-  optional: { color: colors.textMuted, fontWeight: '400' },
+  optional: { color: colors.textMuted, fontFamily: fonts.sans },
   trigger: {
     minHeight: TAP_TARGET + 4,
     borderWidth: 1.5,
@@ -138,10 +138,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   triggerError: { borderColor: colors.danger },
-  triggerText: { fontSize: 17, color: colors.text, flex: 1 },
+  triggerText: { fontSize: 17, fontFamily: fonts.sans, color: colors.text, flex: 1 },
   placeholder: { color: colors.placeholder },
   chevron: { fontSize: 22, color: colors.textMuted, marginTop: -8 },
-  error: { color: colors.danger, fontSize: 14 },
+  error: { color: colors.danger, fontSize: 14, fontFamily: fonts.sans },
   modal: { flex: 1, backgroundColor: colors.background },
   modalHeader: {
     flexDirection: 'row',
@@ -149,7 +149,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: spacing.lg,
   },
-  close: { color: colors.primary, fontSize: 17, fontWeight: '600' },
+  close: { color: colors.brandBlue, fontSize: 17, fontFamily: fonts.sansBold },
   search: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
@@ -159,6 +159,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     paddingHorizontal: spacing.lg,
     fontSize: 17,
+    fontFamily: fonts.sans,
     backgroundColor: colors.surface,
     color: colors.text,
   },
@@ -173,9 +174,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   rowSelected: { backgroundColor: colors.primaryLight },
-  customRow: { backgroundColor: colors.accentLight },
-  rowText: { fontSize: 17, color: colors.text },
-  rowTextSelected: { fontWeight: '600', color: colors.primaryDark },
-  check: { color: colors.primary, fontSize: 18, fontWeight: '700' },
+  customRow: { backgroundColor: colors.brandBlueLight },
+  rowText: { fontSize: 17, fontFamily: fonts.sans, color: colors.text },
+  rowTextSelected: { fontFamily: fonts.sansBold, color: colors.primary },
+  check: { color: colors.brandBlue, fontSize: 18, fontFamily: fonts.sansBold },
   empty: { padding: spacing.xl, textAlign: 'center' },
 });

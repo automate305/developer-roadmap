@@ -8,7 +8,7 @@ import { Screen } from '../components/Screen';
 import { Select } from '../components/Select';
 import { StepHeader } from '../components/StepHeader';
 import { CATEGORY_LABELS, documentsForSpecies, type DocDefinition } from '../data/documents';
-import { colors, radius, spacing, typography } from '../theme';
+import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { DocumentEntry, Intake } from '../types';
 
 interface Props {
@@ -121,5 +121,5 @@ export function DocumentsScreen({ intake, onChange, onNext, onBack, showErrors }
 
 const styles = StyleSheet.create({
   errorBox: { backgroundColor: colors.dangerLight, padding: spacing.md, borderRadius: radius.md },
-  errorText: { ...typography.body, color: colors.danger, fontWeight: '600' },
+  errorText: { ...typography.body, color: colors.danger, fontFamily: fonts.sansSemiBold },
 });
