@@ -28,12 +28,18 @@ export function getClinicContact(): { phone: string; email: string } {
 
 export type SubmitResult = { ok: true; sent: boolean } | { ok: false; error: string };
 
-export async function submitIntake(intake: Intake): Promise<SubmitResult> {
+export async function submitIntake(intake: Intake, lang: string): Promise<SubmitResult> {
   const url = getIntakeUrl();
   if (!url) return { ok: true, sent: false };
 
   const form = new FormData();
-  form.append('intake', JSON.stringify({ ...intake, source: 'my-pet-visa-mobile' }));
+  form.append('intake', JSON.stringify({ ...intake, lang, source: 'petviza-intake' }));
+  form.append('leadRef', intake.leadRef ?? '');
+  form.append('ownerName', intake.ownerName);
+  form.append('ownerEmail', intake.ownerEmail);
+  form.append('petName', intake.petName);
+  form.append('destination', intake.destination);
+  form.append('travelDate', intake.travelDate);
 
   for (const entry of Object.values(intake.documents)) {
     entry.attachments.forEach((file, index) => {

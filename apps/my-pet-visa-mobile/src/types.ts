@@ -66,6 +66,8 @@ export interface Intake {
   documents: Record<string, DocumentEntry>;
 
   // Meta
+  /** Lead reference from the private link, so the coordinator can match it to the consultation request. */
+  leadRef?: string;
   updatedAt: string;
   submittedAt?: string;
 }

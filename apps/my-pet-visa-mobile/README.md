@@ -49,6 +49,21 @@ travel date get a gentle warning.
 
 Edit the list in `src/data/documents.ts`.
 
+## Languages
+
+English and Spanish, switchable from the welcome screen or any step header. Every
+user-facing string lives in `src/i18n/strings.ts`; option lists and the document
+catalog carry both languages inline. The stored data is language-independent (e.g. the
+destination is always saved by its English name) so the coordinator sees one format.
+
+## Private link pre-fill
+
+Open the app with query parameters and it fills what it can:
+`?ref=LEAD-1&name=Ana%20Ruiz&email=ana%40x.com&pet=Luna&species=dog&to=Colombia&date=2026-12-15&lang=es`.
+Only empty fields are filled, so a reopened link never overwrites edits. `ref` is sent
+back as `leadRef` on submission. Full details and the Make scenario in
+[docs/PILOT_WIRING.md](docs/PILOT_WIRING.md).
+
 ## Run it
 
 ```bash
@@ -100,6 +115,9 @@ src/data/options.ts      species, travel modes, common destinations, US states
 src/components/          Button, Field, DateField, Choice (chips), Select (dropdown),
                          AttachmentPicker, DocumentCard, Screen, StepHeader, Card
 src/screens/             Welcome, PetOwner, Travel, Documents, Review, Done
+src/i18n/                strings (en/es) and the language provider
+src/prefill.ts           private-link query parameter parsing
+docs/PILOT_WIRING.md     Make webhook, Vercel hosting, link format, pilot checklist
 src/storage.ts           AsyncStorage draft persistence
 src/submit.ts            webhook submission
 ```

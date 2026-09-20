@@ -1,5 +1,6 @@
 import { StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
 
+import { useT } from '../i18n';
 import { colors, fonts, radius, spacing, TAP_TARGET, typography } from '../theme';
 
 interface Props extends TextInputProps {
@@ -10,11 +11,12 @@ interface Props extends TextInputProps {
 }
 
 export function Field({ label, hint, error, optional, style, ...rest }: Props) {
+  const t = useT();
   return (
     <View style={styles.wrap}>
       <Text style={typography.label}>
         {label}
-        {optional ? <Text style={styles.optional}> (optional)</Text> : null}
+        {optional ? <Text style={styles.optional}> {t('optional')}</Text> : null}
       </Text>
       <TextInput
         placeholderTextColor={colors.placeholder}

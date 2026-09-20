@@ -5,7 +5,8 @@ import { Card } from '../components/Card';
 import { Screen } from '../components/Screen';
 import { StepHeader } from '../components/StepHeader';
 import { getDocument } from '../data/documents';
-import { DOC_STATUS_OPTIONS, SEX_OPTIONS, SPECIES_OPTIONS, TRAVEL_MODE_OPTIONS, YES_NO_UNSURE } from '../data/options';
+import { DOC_STATUS_OPTIONS, SEX_OPTIONS, SPECIES_OPTIONS, TRAVEL_MODE_OPTIONS, YES_NO_UNSURE, labelOf } from '../data/options';
+import { useLanguage } from '../i18n';
 import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { Intake } from '../types';
 
@@ -18,10 +19,6 @@ interface Props {
   submitError?: string;
 }
 
-function label<T extends string>(options: { value: T; label: string }[], value: T | ''): string {
-  return options.find((o) => o.value === value)?.label ?? '—';
-}
-
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <View style={styles.row}>
@@ -31,80 +28,78 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-function SectionTitle({ title, onEdit }: { title: string; onEdit: () => void }) {
-  return (
+export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, submitError }: Props) {
+  const { t, lang } = useLanguage();
+  const docs = Object.values(intake.documents);
+  const attachmentCount = docs.reduce((n, d) => n + d.attachments.length, 0);
+
+  const SectionTitle = ({ title, onPress }: { title: string; onPress: () => void }) => (
     <View style={styles.sectionHeader}>
       <Text style={typography.subheading}>{title}</Text>
-      <Pressable onPress={onEdit} hitSlop={10} accessibilityRole="button">
-        <Text style={styles.edit}>Edit</Text>
+      <Pressable onPress={onPress} hitSlop={10} accessibilityRole="button">
+        <Text style={styles.edit}>{t('edit')}</Text>
       </Pressable>
     </View>
   );
-}
-
-export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, submitError }: Props) {
-  const docs = Object.values(intake.documents);
-  const attachmentCount = docs.reduce((n, d) => n + d.attachments.length, 0);
 
   return (
     <Screen
       footer={
         <>
-          <Button title="Send to PetViza" onPress={onSubmit} loading={submitting} />
-          <Button title="Back" variant="ghost" onPress={onBack} disabled={submitting} />
+          <Button title={t('reviewSend')} onPress={onSubmit} loading={submitting} />
+          <Button title={t('back')} variant="ghost" onPress={onBack} disabled={submitting} />
         </>
       }
     >
-      <StepHeader step={4} total={4} title="Review & send" subtitle="Double-check the details, then send it to our team." />
+      <StepHeader step={4} total={4} title={t('reviewTitle')} subtitle={t('reviewSubtitle')} />
 
       {submitError ? (
         <View style={styles.errorBox}>
-          <Text style={styles.errorText}>We couldn't send this right now ({submitError}). Your answers are saved on this phone. Please try again in a moment.</Text>
+          <Text style={styles.errorText}>{t('reviewError', { error: submitError })}</Text>
         </View>
       ) : null}
 
       <Card>
-        <SectionTitle title="You and your pet" onEdit={() => onEdit(1)} />
-        <Row k="Owner" v={intake.ownerName} />
-        <Row k="Phone" v={intake.ownerPhone} />
-        <Row k="Email" v={intake.ownerEmail} />
-        <Row k="Pet" v={`${intake.petName} · ${label(SPECIES_OPTIONS, intake.species)}${intake.breed ? ` · ${intake.breed}` : ''}`} />
-        <Row k="Sex" v={label(SEX_OPTIONS, intake.sex)} />
-        <Row k="Born" v={intake.birthDate} />
+        <SectionTitle title={t('reviewOwnerSection')} onPress={() => onEdit(1)} />
+        <Row k={t('reviewOwner')} v={intake.ownerName} />
+        <Row k={t('reviewPhone')} v={intake.ownerPhone} />
+        <Row k={t('reviewEmail')} v={intake.ownerEmail} />
+        <Row k={t('reviewPet')} v={`${intake.petName} · ${labelOf(SPECIES_OPTIONS, intake.species, lang)}${intake.breed ? ` · ${intake.breed}` : ''}`} />
+        <Row k={t('reviewSex')} v={labelOf(SEX_OPTIONS, intake.sex, lang)} />
+        <Row k={t('reviewBorn')} v={intake.birthDate} />
       </Card>
 
       <Card>
-        <SectionTitle title="Trip" onEdit={() => onEdit(2)} />
-        <Row k="Going to" v={intake.destination} />
-        <Row k="Travel date" v={intake.travelDate} />
-        <Row k="How" v={`${label(TRAVEL_MODE_OPTIONS, intake.travelMode)}${intake.airline ? ` · ${intake.airline}` : ''}`} />
-        <Row k="Microchip" v={`${label(YES_NO_UNSURE, intake.hasMicrochip)}${intake.microchipNumber ? ` · ${intake.microchipNumber}` : ''}`} />
-        <Row k="Rabies current" v={`${label(YES_NO_UNSURE, intake.rabiesVaccinated)}${intake.rabiesDate ? ` · ${intake.rabiesDate}` : ''}`} />
+        <SectionTitle title={t('reviewTripSection')} onPress={() => onEdit(2)} />
+        <Row k={t('reviewGoingTo')} v={intake.destination} />
+        <Row k={t('reviewTravelDate')} v={intake.travelDate} />
+        <Row k={t('reviewHow')} v={`${labelOf(TRAVEL_MODE_OPTIONS, intake.travelMode, lang)}${intake.airline ? ` · ${intake.airline}` : ''}`} />
+        <Row k={t('reviewChip')} v={`${labelOf(YES_NO_UNSURE, intake.hasMicrochip, lang)}${intake.microchipNumber ? ` · ${intake.microchipNumber}` : ''}`} />
+        <Row k={t('reviewRabies')} v={`${labelOf(YES_NO_UNSURE, intake.rabiesVaccinated, lang)}${intake.rabiesDate ? ` · ${intake.rabiesDate}` : ''}`} />
         {intake.travelType === 'international' ? (
           <>
-            <Row k="Returning to US" v={label(YES_NO_UNSURE, intake.returningToUS)} />
-            <Row k="Abroad last 6 mo." v={label(YES_NO_UNSURE, intake.outsideUSLast6Months)} />
+            <Row k={t('reviewReturning')} v={labelOf(YES_NO_UNSURE, intake.returningToUS, lang)} />
+            <Row k={t('reviewAbroad')} v={labelOf(YES_NO_UNSURE, intake.outsideUSLast6Months, lang)} />
           </>
         ) : null}
-        <Row k="Health notes" v={intake.healthConcerns} />
+        <Row k={t('reviewHealth')} v={intake.healthConcerns} />
       </Card>
 
       <Card>
-        <SectionTitle title={`Documents (${attachmentCount} file${attachmentCount === 1 ? '' : 's'} attached)`} onEdit={() => onEdit(3)} />
-        {docs.length === 0 ? <Text style={typography.small}>None added yet.</Text> : null}
+        <SectionTitle title={t('reviewDocsSection', { n: attachmentCount })} onPress={() => onEdit(3)} />
+        {docs.length === 0 ? <Text style={typography.small}>{t('reviewDocsNone')}</Text> : null}
         {docs.map((d) => {
           const def = getDocument(d.docId);
           if (!def) return null;
-          const statusStyle =
-            d.status === 'current' ? styles.ok : d.status === 'not_applicable' ? styles.na : styles.attention;
+          const statusStyle = d.status === 'current' ? styles.ok : d.status === 'not_applicable' ? styles.na : styles.attention;
           return (
             <View key={d.docId} style={styles.docRow}>
               <View style={styles.docText}>
-                <Text style={typography.body}>{def.label}</Text>
+                <Text style={typography.body}>{def.label[lang]}</Text>
                 <Text style={typography.small}>
-                  {label(DOC_STATUS_OPTIONS, d.status)}
-                  {d.expiresOn ? ` · expires ${d.expiresOn}` : ''}
-                  {d.attachments.length ? ` · ${d.attachments.length} file${d.attachments.length === 1 ? '' : 's'}` : ''}
+                  {labelOf(DOC_STATUS_OPTIONS, d.status, lang)}
+                  {d.expiresOn ? ` · ${t('reviewExpires', { date: d.expiresOn })}` : ''}
+                  {d.attachments.length ? ` · ${t('reviewFiles', { n: d.attachments.length })}` : ''}
                 </Text>
               </View>
               <View style={[styles.dot, statusStyle]} />
@@ -113,10 +108,7 @@ export function ReviewScreen({ intake, onEdit, onSubmit, onBack, submitting, sub
         })}
       </Card>
 
-      <Text style={[typography.small, styles.legal]}>
-        By sending, you agree that PetViza may use these details to respond and plan your route. Final requirements depend on your
-        destination and are confirmed with you personally.
-      </Text>
+      <Text style={[typography.small, styles.legal]}>{t('reviewLegal')}</Text>
     </Screen>
   );
 }

@@ -6,7 +6,8 @@ import { Choice } from './Choice';
 import { DateField } from './DateField';
 import { Field } from './Field';
 import type { DocDefinition } from '../data/documents';
-import { DOC_STATUS_OPTIONS } from '../data/options';
+import { DOC_STATUS_OPTIONS, localize } from '../data/options';
+import { useLanguage } from '../i18n';
 import { colors, fonts, radius, spacing, typography } from '../theme';
 import type { DocumentEntry } from '../types';
 import { daysUntil, isPastDate } from '../utils';
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function DocumentCard({ def, entry: saved, onChange, onRemove, travelDate }: Props) {
+  const { t, lang } = useLanguage();
   const entry: DocumentEntry = saved ?? { docId: def.id, status: 'missing', attachments: [] };
   const answered = saved !== null;
   const hasIt = answered && (entry.status === 'current' || entry.status === 'expired');
@@ -35,20 +37,20 @@ export function DocumentCard({ def, entry: saved, onChange, onRemove, travelDate
     <Card>
       <View style={styles.header}>
         <View style={styles.titleWrap}>
-          <Text style={typography.subheading}>{def.label}</Text>
-          {def.essential ? <Text style={styles.essential}>Required</Text> : null}
+          <Text style={typography.subheading}>{def.label[lang]}</Text>
+          {def.essential ? <Text style={styles.essential}>{t('docRequired')}</Text> : null}
         </View>
         {onRemove ? (
-          <Pressable onPress={onRemove} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${def.label}`}>
-            <Text style={styles.remove}>Remove</Text>
+          <Pressable onPress={onRemove} hitSlop={10} accessibilityRole="button" accessibilityLabel={`${t('remove')} ${def.label[lang]}`}>
+            <Text style={styles.remove}>{t('remove')}</Text>
           </Pressable>
         ) : null}
       </View>
-      <Text style={typography.small}>{def.help}</Text>
+      <Text style={typography.small}>{def.help[lang]}</Text>
 
       <Choice
-        label="Do you have this?"
-        options={DOC_STATUS_OPTIONS}
+        label={t('docHaveIt')}
+        options={localize(DOC_STATUS_OPTIONS, lang)}
         value={answered ? entry.status : ''}
         onChange={(status) => onChange({ ...entry, status })}
       />
@@ -56,39 +58,36 @@ export function DocumentCard({ def, entry: saved, onChange, onRemove, travelDate
       {hasIt && def.tracksExpiry ? (
         <View style={styles.dates}>
           <View style={styles.dateCol}>
-            <DateField label="Given on" value={entry.issuedOn ?? ''} onChange={(issuedOn) => onChange({ ...entry, issuedOn })} optional />
+            <DateField label={t('docGivenOn')} value={entry.issuedOn ?? ''} onChange={(issuedOn) => onChange({ ...entry, issuedOn })} optional />
           </View>
           <View style={styles.dateCol}>
-            <DateField label="Expires" value={entry.expiresOn ?? ''} onChange={(expiresOn) => onChange({ ...entry, expiresOn })} optional />
+            <DateField label={t('docExpires')} value={entry.expiresOn ?? ''} onChange={(expiresOn) => onChange({ ...entry, expiresOn })} optional />
           </View>
         </View>
       ) : null}
 
       {hasIt && (expired || expiresBeforeTrip) ? (
         <View style={styles.warn}>
-          <Text style={styles.warnText}>
-            {expired ? 'This looks expired. ' : 'This expires before your trip. '}
-            We will plan a renewal into your timeline.
-          </Text>
+          <Text style={styles.warnText}>{expired ? t('docExpiredWarn') : t('docExpiresBeforeTrip')}</Text>
         </View>
       ) : null}
 
       {answered && entry.status === 'missing' && def.essential ? (
         <View style={styles.warn}>
-          <Text style={styles.warnText}>No problem. We will map this into your plan.</Text>
+          <Text style={styles.warnText}>{t('docMissingEssential')}</Text>
         </View>
       ) : null}
 
       {hasIt ? (
         <>
-          <Text style={typography.label}>Attach a photo or PDF</Text>
+          <Text style={typography.label}>{t('docAttach')}</Text>
           <AttachmentPicker attachments={entry.attachments} onChange={(attachments) => onChange({ ...entry, attachments })} />
           <Field
-            label="Notes"
+            label={t('docNotes')}
             value={entry.notes ?? ''}
             onChangeText={(notes) => onChange({ ...entry, notes })}
             optional
-            placeholder="e.g. given at another clinic"
+            placeholder={t('docNotesPlaceholder')}
           />
         </>
       ) : null}
