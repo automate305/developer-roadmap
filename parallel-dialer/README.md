@@ -98,17 +98,16 @@ campaign ends. Column matching is header-driven — `company`, `first_name`,
 actually calls), `phone2`, `company_url`, `linkedin`, `signal`, `status`, with
 common aliases (`cell`, `mobile`, `website`, …) recognized automatically.
 
-**Contacts, lists, session history, and meeting-booked outcomes live in the
-browser's `localStorage` today — there is no backend model for any of them.**
-That is a scope line, not an oversight: the dialer's own state (sessions,
-legs, the HubSpot write) is what has to be right before any of this needs a
-server home too. Concretely, this means: it resets if you clear site data,
-it does not sync between agents or machines, and a meeting an agent logs
-after a call does not yet reach the HubSpot timeline — only the engine's own
-AMD dispositions (HUMAN/MACHINE/NO_ANSWER/…) do. Durable, shared contacts and
-reporting is real backend work — a database, real per-agent auth beyond the
-one shared `DIALER_API_KEY`, and an endpoint to attach an agent's outcome to
-a call — and is deliberately out of scope here.
+**Contacts, lists and session history are persisted server-side** (three
+JSON files under `WORKSPACE_DATA_DIR`, behind `/api/workspace/*` — see
+`AGENTS.md`), so they survive a restart and aren't tied to one browser.
+**A meeting an agent logs also reaches the HubSpot timeline now** — appended
+to the same Call engagement the AMD disposition already wrote, found by the
+outbound leg's Twilio Call SID.
+
+Still out of scope: real per-agent auth beyond the one shared
+`DIALER_API_KEY`, and routing a batch to whichever of several agents is
+free — those still need real backend work if you want them.
 
 ## Batch race and abandoned calls
 

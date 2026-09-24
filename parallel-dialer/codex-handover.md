@@ -47,16 +47,17 @@ parallel-dialer/
   src/backend/hubspotService.js     v3 HMAC, lead queue, call activity logging
   src/backend/callActivityQueue.js  durable retry + dead-letter for CRM writes
   src/backend/classificationAudit.js  append-only AMD decision log
+  src/backend/workspaceStore.js     Contacts/Lists/Session History — JSON files on disk
   src/backend/twilioClient.js       REST client, hangups, TwiML redirects, tokens
-  src/backend/routes/{twiml,api,webhooks}.js
-  src/frontend/App.jsx              masthead, tabs, cross-tab state (localStorage today)
+  src/backend/routes/{twiml,api,webhooks,workspace}.js
+  src/frontend/App.jsx              masthead, tabs, cross-tab state (server-backed now)
   src/frontend/DialerDevice.jsx     Campaigns tab: WebRTC agent workstation
   src/frontend/tabs/ContactsTab.jsx CSV import + contacts spreadsheet
   src/frontend/tabs/ListsTab.jsx    named imports, "Start campaign"
   src/frontend/tabs/ReportsTab.jsx  dialed/connects/meetings, per session
   src/frontend/lib/csv.js           CSV parsing + header auto-matching
   scripts/score-amd.mjs             AMD scorer: latency, confusion matrix
-  test/*.test.js                    69 node:test cases (backend only — no frontend tests exist)
+  test/*.test.js                    90 node:test cases (backend only — no frontend tests exist)
 ```
 
 ## How it works, in one paragraph
@@ -73,53 +74,25 @@ three timers. The first HUMAN wins the batch and is redirected to
 
 ## The new gap — Contacts / Lists / Reports / outcomes have no backend
 
-The workstation (`src/frontend/App.jsx` + `src/frontend/tabs/*`) grew four
-tabs: Campaigns (existing), Contacts, Lists, Reports. The last three are
-**entirely client-side** — `src/frontend/lib/storage.js` wraps
-`localStorage`, and that is the only place any of this data lives today.
-`AGENTS.md` states this as a deliberate scope line, not an oversight, and
-says explicitly: don't quietly wire a frontend call to a backend endpoint
-that isn't there. This handover is you being asked to build that endpoint —
-deliberately, with the design questions below answered first.
+**Items 1 and 2 below are closed, in PR #10.** Contacts, Lists and Session
+History persist server-side (`src/backend/workspaceStore.js`, behind
+`/api/workspace/*`), and an agent's logged outcome now reaches HubSpot
+(`hubspotService.js#appendCallOutcome`). `AGENTS.md`'s "Frontend tabs and
+where their data lives" section describes the shipped shape; read that
+first. Do not re-do either — item 3 is still open.
 
-**Current shapes**, so you don't have to reverse-engineer them:
+One deliberate deviation from this brief: **plain JSON files, not
+`better-sqlite3`**, as suggested below. No SQLite (or any DB) dependency
+existed in this project, and pilot-scale data doesn't need one — three
+whole-file JSON documents, written atomically, is what `AMD_AUDIT_PATH` and
+`HUBSPOT_DEAD_LETTER_PATH` already do, just without the append-only
+constraint (Contacts needs update/delete, which a JSONL log can't do
+cleanly, hence three files rather than one log). If a real service ends up
+warranted at higher volume, that's still Cam's infrastructure call, not a
+reason to revisit this now.
 
-```js
-// A contact, from ContactsTab.jsx / App.handleImport
-{ id, company, firstName, lastName, title, email, phone1, phone2,
-  companyUrl, linkedin, signal, status, listId, listName }
+**Still open:**
 
-// A list, from App.handleImport
-{ id, name, count, dialableCount, importedAt }
-
-// A session summary, from DialerDevice.finishSession, appended on
-// session:exhausted or a manual Stop
-{ id, startedAt, endedAt, mode, listName, leadsTotal, stats, meetingsBooked }
-
-// An outcome, logged from DialerDevice's post-call prompt — currently
-// only ever bumps a client-side counter (logOutcome() in DialerDevice.jsx),
-// never leaves the browser
-{ key: 'meeting' | 'callback' | 'not_interested', phone, at }
-```
-
-**What "done" looks like:**
-
-1. **Persistence for contacts/lists/session history.** This is a single
-   Railway instance with an already-provisioned `/data` volume (see
-   `DEPLOY_RAILWAY.md`) — the existing dead-letter and audit logs are
-   JSONL files on that same volume. A single-file embedded database
-   (`better-sqlite3` against a path under `/data`) fits that pattern and
-   needs no new infrastructure; a JSONL log does not fit here because
-   Contacts needs updates and lookups, not just appends. If you think a
-   real service (Postgres, etc.) is warranted instead, say so and why
-   before building it — that is an infrastructure decision, not a code
-   one, and belongs to Cam.
-2. **An outcome endpoint.** Something like
-   `POST /api/calls/:callSid/outcome { outcome, notes? }` that persists the
-   outcome and writes it into HubSpot via `hubspotService.js` — extend
-   `buildCallBody`/`logCallActivity` or add a follow-up note on the same
-   engagement, whichever the HubSpot API makes cleaner. `DialerDevice`'s
-   `logOutcome()` (line 323) is where the frontend call belongs.
 3. **Thread `contactId`/`name`/`company` through "Start campaign".**
    `App.handleStartCampaign` currently sends bare phone strings to the
    Campaigns dial list, discarding everything else on the contact. The
@@ -134,15 +107,11 @@ deliberately, with the design questions below answered first.
    verify it's actually adequate once outcomes need a `contactId` to write
    to.
 
-Read `AGENTS.md`'s "Frontend tabs and where their data lives" section before
-starting — it says the same thing this section does, written for a colder
-read.
-
 ---
 
 ## Already proven — do not redo
 
-- `npm test` → 69 passing (classifier, AMD timers and transitions, batch race,
+- `npm test` → 90 passing (classifier, AMD timers and transitions, batch race,
   abandoned-call path, HMAC validation, queue throttling, CRM retry/dead-letter,
   audit fingerprinting, power-dial mode). No network needed.
 - `npm run build` → clean Vite build.
@@ -280,7 +249,7 @@ TwiML App whose Voice Request URL points at
 `POST {PUBLIC_BASE_URL}/twiml/agent-outbound`.
 
 ```bash
-npm test          # 69 unit tests, no network
+npm test          # 90 unit tests, no network
 npm run dev:all   # API on :3000, workstation on :5173
 npm run build
 npm run score:amd # AMD verdicts, latency percentiles, confusion matrix
@@ -303,14 +272,18 @@ Watch `/api/events` (SSE) or the JSON logs to follow the batch. Every leg logs
 
 ## Definition of done
 
-**The new gap** (do this first — it needs nothing from Cam):
+**The new gap** — closed, in PR #10:
 
-- Contacts, lists and session history survive a server restart, not just a
-  page reload.
-- Logging a call outcome writes to HubSpot, not only a client-side counter.
-- `AGENTS.md` updated to match whatever storage choice you made, the same way
-  it documents everything else load-bearing in this codebase.
-- `npm test` and `npm run build` still clean, and the PR you worked on updated.
+- ✅ Contacts, lists and session history survive a server restart, not just a
+  page reload (`workspaceStore.js`, three JSON files, not `localStorage`).
+- ✅ Logging a call outcome writes to HubSpot, not only a client-side counter
+  (`appendCallOutcome`, queued and retried the same way the AMD-disposition
+  write already was).
+- ✅ `AGENTS.md` updated to match.
+- ✅ `npm test` (90 passing) and `npm run build` clean.
+- Still open: item 3 above (threading `contactId`/`name`/`company` through
+  "Start campaign") — not part of this gap's original done-criteria, but
+  documented there as the next natural piece.
 
 **Gate 1** (only once Cam has supplied credentials and a Railway deployment
 exists):

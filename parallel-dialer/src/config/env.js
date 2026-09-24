@@ -136,6 +136,17 @@ export const config = Object.freeze({
     // vanishing. Put this on a volume that survives a restart.
     deadLetterPath: str('HUBSPOT_DEAD_LETTER_PATH', './data/crm-dead-letter.jsonl'),
     replayDeadLetterOnBoot: bool('HUBSPOT_REPLAY_DEAD_LETTER_ON_BOOT', true),
+    // Agent-logged outcomes (Meeting booked / Follow up / Not interested) that
+    // exhaust their retries land here — same durability story as the AMD
+    // dispositions above, kept in a separate file so the two dead letters
+    // can be triaged independently.
+    outcomeDeadLetterPath: str('HUBSPOT_OUTCOME_DEAD_LETTER_PATH', './data/crm-outcome-dead-letter.jsonl'),
+  },
+
+  workspace: {
+    // Contacts, Lists and Session History — see workspaceStore.js. Was
+    // browser localStorage only; this is what makes it survive a restart.
+    dataDir: str('WORKSPACE_DATA_DIR', './data/workspace'),
   },
 });
 
@@ -182,6 +193,13 @@ export function validateConfig() {
   const durable = [
     ['HUBSPOT_DEAD_LETTER_PATH', config.hubspot.deadLetterPath, 'failed CRM writes', config.hubspot.accessToken],
     ['AMD_AUDIT_PATH', config.amd.auditPath, 'the record of every answer-detection decision', true],
+    [
+      'HUBSPOT_OUTCOME_DEAD_LETTER_PATH',
+      config.hubspot.outcomeDeadLetterPath,
+      'failed agent-outcome writes',
+      config.hubspot.accessToken,
+    ],
+    ['WORKSPACE_DATA_DIR', config.workspace.dataDir, 'Contacts, Lists and Session History', true],
   ];
   for (const [name, value, what, applies] of durable) {
     if (config.isProduction && applies && value && !value.startsWith('/')) {

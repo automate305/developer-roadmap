@@ -100,6 +100,15 @@ export default function DialerDevice({
   // than one leg can classify HUMAN in close succession — exact under power
   // dial, the one call at a time case this is mainly for.
   const preConnectTranscriptRef = useRef('');
+  // The winning leg's *outbound* Twilio Call SID — captured at the same
+  // `leg:classified` moment as the transcript above, for the same
+  // best-effort-under-parallel-dial reason. This is NOT `call.parameters.
+  // CallSid`: that's the inbound `<Dial><Client>` leg to this browser, a
+  // different call from the backend's point of view, and it's the outbound
+  // leg's SID that `logCallActivity` used when it created this call's
+  // HubSpot engagement — so it's the only id `logOutcome` below can use to
+  // find that same engagement again.
+  const connectedCallSidRef = useRef(null);
 
   // A list handed over from the Lists tab replaces the dial list. `token`
   // changes on every request so re-sending the same list still applies.
@@ -165,11 +174,14 @@ export default function DialerDevice({
         callStartRef.current = Date.now();
         setCallInfo({
           from: call.parameters?.From ?? 'unknown',
-          callSid: call.parameters?.CallSid ?? null,
+          // The outbound leg's SID (see connectedCallSidRef's comment) —
+          // what logOutcome needs, not the browser leg's own CallSid.
+          callSid: connectedCallSidRef.current,
           startedAt: Date.now(),
           transcript: preConnectTranscriptRef.current,
         });
         preConnectTranscriptRef.current = '';
+        connectedCallSidRef.current = null;
         setElapsed(0);
         callTimerRef.current = setInterval(() => setElapsed((seconds) => seconds + 1), 1000);
         pushEvent('success', 'Call connected', call.parameters?.From);
@@ -194,7 +206,15 @@ export default function DialerDevice({
         // whether the agent hung up or the caller did — Twilio's `disconnect`
         // event doesn't distinguish, and neither does this.
         setCallInfo((info) => {
-          if (info) setLastEndedCall({ from: info.from, endedAt: Date.now(), durationSeconds, transcript: info.transcript });
+          if (info) {
+            setLastEndedCall({
+              from: info.from,
+              callSid: info.callSid,
+              endedAt: Date.now(),
+              durationSeconds,
+              transcript: info.transcript,
+            });
+          }
           return null;
         });
       };
@@ -348,16 +368,35 @@ export default function DialerDevice({
   const logOutcome = useCallback(
     (outcomeKey) => {
       const label = OUTCOMES.find((o) => o.key === outcomeKey)?.label ?? outcomeKey;
-      const from = status === AgentStatus.IN_CALL ? callInfo?.from : lastEndedCall?.from;
+      const inCall = status === AgentStatus.IN_CALL;
+      const active = inCall ? callInfo : lastEndedCall;
       if (outcomeKey === 'meeting') setMeetingsBooked((n) => n + 1);
-      pushEvent('success', `Logged: ${label}`, [from, notes].filter(Boolean).join(' — ') || undefined);
+      pushEvent('success', `Logged: ${label}`, [active?.from, notes].filter(Boolean).join(' — ') || undefined);
+
+      if (active?.callSid) {
+        fetch(`${apiBase}/api/workspace/outcomes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ callSid: active.callSid, outcome: outcomeKey, notes }),
+        })
+          .then((response) => {
+            if (!response.ok) throw new Error(`outcome request failed (${response.status})`);
+          })
+          .catch((err) => pushEvent('warn', 'Outcome not sent to HubSpot', err.message));
+      } else {
+        // No outbound-leg SID captured for this call — logOutcome shouldn't
+        // block the agent on that, but say so rather than quietly acting as
+        // if it reached the CRM when it never left the browser.
+        pushEvent('warn', 'Outcome logged here only — no call SID to attach it to in HubSpot');
+      }
+
       // Logging mid-call records the outcome and clears the notes field for
       // whatever's said next; it does not end the call. Logging after
       // hangup dismisses the prompt too — there's nothing left to add to.
-      if (status !== AgentStatus.IN_CALL) setLastEndedCall(null);
+      if (!inCall) setLastEndedCall(null);
       setNotes('');
     },
-    [pushEvent, status, callInfo, lastEndedCall, notes],
+    [apiBase, authHeaders, pushEvent, status, callInfo, lastEndedCall, notes],
   );
 
   // ──────────────────────────────────────────────────── session control ────
@@ -464,8 +503,9 @@ export default function DialerDevice({
           if (name === 'leg:classified' && payload.classification === 'HUMAN' && payload.won !== false) {
             // Held until the matching call actually rings this browser (see
             // `call.on('accept')`), then cleared. Best-effort under parallel
-            // dial — see the ref's own comment for why.
+            // dial — see each ref's own comment for why.
             preConnectTranscriptRef.current = payload.transcript ?? '';
+            connectedCallSidRef.current = payload.callSid ?? null;
           }
           if (name === 'leg:ended' && payload.phone && onLegEnded) {
             onLegEnded({ phone: payload.phone, disposition: payload.disposition ?? 'UNKNOWN', at: Date.now() });

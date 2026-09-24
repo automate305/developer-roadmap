@@ -73,16 +73,38 @@ on the winner claim: Twilio re-delivers status callbacks.
 ## Frontend tabs and where their data lives
 
 The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
-Lists, Reports. Contacts, Lists, Reports, and an agent's logged call outcomes
-(`Meeting booked` / `Follow up` / `Not interested`) are **client-side state in
-`localStorage`** (`src/frontend/lib/storage.js`) — there is no backend model
-for a contact, a list, or an outcome. Only the engine's own AMD dispositions
-(HUMAN/MACHINE/NO_ANSWER/…) reach HubSpot, via the existing call-activity
-path. Do not assume a `logOutcome` call or an imported contact reaches the
-backend — it doesn't yet. If you're asked to make any of this durable or
-shared across agents, that's new backend surface (storage, auth beyond the
-one shared `DIALER_API_KEY`, an endpoint for an agent's outcome) — say so
-rather than quietly wiring a frontend call to an endpoint that isn't there.
+Lists, Reports. Contacts, Lists and Session History are **server-side now**
+(`src/backend/workspaceStore.js`) — three whole-file JSON documents under
+`WORKSPACE_DATA_DIR` (default `./data/workspace`), loaded on boot and
+rewritten atomically on every mutation, behind `GET/POST /api/workspace/*`
+(`src/backend/routes/workspace.js`). This closed the gap this file used to
+describe ("client-side state in `localStorage`, doesn't survive a restart"):
+`App.jsx` now fetches `/api/workspace/state` on mount and POSTs/DELETEs
+through the same router instead of calling `localStorage` directly. No
+database — three JSON files were enough for pilot-scale data, matching how
+`AMD_AUDIT_PATH` and `HUBSPOT_DEAD_LETTER_PATH` already do this.
+
+An agent's own logged outcome (`Meeting booked` / `Follow up` / `Not
+interested`, from the "Call notes" card) **does now reach HubSpot** —
+`hubspotService.js#appendCallOutcome` appends a line to the same Call
+engagement `logCallActivity` already created for that leg's `callSid`
+(found via `findCallByExternalId`, not a second engagement), queued through
+`CallActivityQueue` the same way the AMD-disposition write is, with its own
+dead letter (`HUBSPOT_OUTCOME_DEAD_LETTER_PATH`). It is looked up by the
+*outbound leg's* Twilio Call SID — not `call.parameters.CallSid`, which is
+the inbound `<Dial><Client>` leg to the browser and a different call
+entirely from the backend's point of view. `DialerDevice.jsx` captures the
+right one (`connectedCallSidRef`) off the same `leg:classified` SSE event
+`preConnectTranscriptRef` already reads, for the same best-effort-under-
+parallel-dial reason. If that ref is empty when the agent logs an outcome,
+the write is skipped with a visible warning rather than silently doing
+nothing — say so the same way if you touch this path and hit a case where
+the SID isn't available yet.
+
+Still genuinely unimplemented: real identity/auth beyond the one shared
+`DIALER_API_KEY`, and routing across more than one agent. Those are still
+new backend surface if asked for — say so rather than quietly wiring
+something up.
 
 **The Campaigns tab's "Call notes" card has a transcript section that is not
 a live transcript.** It shows `preConnectTranscriptRef` — whatever Deepgram
@@ -109,7 +131,7 @@ incomparable calls.
 ```bash
 cd parallel-dialer
 npm install
-npm test            # 64 unit tests, no network
+npm test            # 90 unit tests, no network
 npm run build       # server + web
 npm run dev:all     # API on :3000, workstation on :5173
 node scripts/score-amd.mjs   # AMD verdicts, latency percentiles, confusion matrix
