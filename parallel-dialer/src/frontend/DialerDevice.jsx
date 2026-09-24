@@ -44,10 +44,15 @@ const OUTCOMES = [
  * @param {string} [props.apiBase] backend origin; defaults to same-origin
  * @param {string} [props.identity] client identity, must match the backend's
  * @param {string} [props.apiKey] shared secret sent as `x-dialer-key`
- * @param {{ text: string, listName: string, token: number }} [props.loadRequest]
+ * @param {{ text: string, listName: string, contacts?: object[], token: number }} [props.loadRequest]
  *   set by the parent (e.g. "Start campaign" on the Lists tab) to replace the
  *   dial list; `token` must change on every request so the same list can be
- *   loaded twice in a row.
+ *   loaded twice in a row. `contacts`, when present, are that list's full
+ *   records — carried through to the dialer so a connected call can screen-pop
+ *   the company/name instead of just a phone number.
+ * @param {object[]} [props.contacts] every contact on file, across lists —
+ *   the fallback screen-pop match for a freeform-pasted number that happens
+ *   to already be a known contact.
  * @param {(entry: { phone: string, disposition: string, at: number }) => void} [props.onLegEnded]
  *   fired for every leg the engine reports ended, win or lose — this is how
  *   Contacts learns a number's last outcome.
@@ -59,6 +64,7 @@ export default function DialerDevice({
   identity = 'agent_1',
   apiKey = '',
   loadRequest = null,
+  contacts = [],
   onLegEnded,
   onSessionEnded,
 }) {
@@ -75,6 +81,10 @@ export default function DialerDevice({
 
   const [leadsText, setLeadsText] = useState('');
   const [activeListName, setActiveListName] = useState(null);
+  // The full contact records behind the active list, when it came from
+  // "Start campaign" rather than a freeform paste — keyed for startSession
+  // to attach contactId/name/company onto each lead below.
+  const [activeListContacts, setActiveListContacts] = useState([]);
   const [batchSize, setBatchSize] = useState(4);
   // 'power'  → one line, agent bridged on answer, no AMD verdict acted on.
   // 'parallel' → N lines, the AMD verdict picks who reaches the agent.
@@ -100,15 +110,25 @@ export default function DialerDevice({
   // than one leg can classify HUMAN in close succession — exact under power
   // dial, the one call at a time case this is mainly for.
   const preConnectTranscriptRef = useRef('');
-  // The winning leg's *outbound* Twilio Call SID — captured at the same
-  // `leg:classified` moment as the transcript above, for the same
-  // best-effort-under-parallel-dial reason. This is NOT `call.parameters.
-  // CallSid`: that's the inbound `<Dial><Client>` leg to this browser, a
-  // different call from the backend's point of view, and it's the outbound
-  // leg's SID that `logCallActivity` used when it created this call's
-  // HubSpot engagement — so it's the only id `logOutcome` below can use to
-  // find that same engagement again.
-  const connectedCallSidRef = useRef(null);
+  // The winning leg's identity — outbound Twilio Call SID, the lead's own
+  // phone number, and (when known) their name/company — captured at the
+  // same `leg:classified` moment as the transcript above, for the same
+  // best-effort-under-parallel-dial reason.
+  //
+  // `callSid` is NOT `call.parameters.CallSid`: that's the inbound
+  // `<Dial><Client>` leg to this browser, a different call from the
+  // backend's point of view, and it's the outbound leg's SID that
+  // `logCallActivity` used when it created this call's HubSpot engagement —
+  // so it's the only id `logOutcome` below can use to find that same
+  // engagement again.
+  //
+  // `phone` is NOT `call.parameters.From` either: the bridge in
+  // dialerEngine.js's `#connectToAgent` sets no `callerId` on `<Dial>`, so
+  // Twilio's default applies and the inbound leg's From is the *parent*
+  // call's From — this agency's own Twilio caller ID, not the lead's number.
+  // The SSE feed is the only place the lead's actual number is available on
+  // this side of the bridge.
+  const connectedLegRef = useRef(null);
 
   // A list handed over from the Lists tab replaces the dial list. `token`
   // changes on every request so re-sending the same list still applies.
@@ -116,7 +136,27 @@ export default function DialerDevice({
     if (!loadRequest) return;
     setLeadsText(loadRequest.text);
     setActiveListName(loadRequest.listName);
+    setActiveListContacts(loadRequest.contacts ?? []);
   }, [loadRequest]);
+
+  // phone (E.164) → contact record, for attaching name/company to a lead
+  // before dialing and for screen-popping a connected call. The active
+  // list's own records win; contacts on file elsewhere are the fallback for
+  // a freeform-pasted number that happens to already be a known contact.
+  const phoneToContact = useMemo(() => {
+    const map = new Map();
+    for (const c of contacts) if (c.phone1) map.set(c.phone1, c);
+    for (const c of activeListContacts) if (c.phone1) map.set(c.phone1, c);
+    return map;
+  }, [contacts, activeListContacts]);
+
+  // The SSE effect below closes over this once and never resubscribes (a
+  // deliberate choice — see its own comment), so it reads through a ref
+  // instead of the memo directly to stay current without dropping frames.
+  const phoneToContactRef = useRef(phoneToContact);
+  useEffect(() => {
+    phoneToContactRef.current = phoneToContact;
+  }, [phoneToContact]);
 
   /** Auth headers for the control plane. */
   const authHeaders = useMemo(() => (apiKey ? { 'x-dialer-key': apiKey } : {}), [apiKey]);
@@ -172,16 +212,22 @@ export default function DialerDevice({
         setNotes('');
         setMuted(call.isMuted());
         callStartRef.current = Date.now();
+        const lead = connectedLegRef.current;
         setCallInfo({
-          from: call.parameters?.From ?? 'unknown',
-          // The outbound leg's SID (see connectedCallSidRef's comment) —
-          // what logOutcome needs, not the browser leg's own CallSid.
-          callSid: connectedCallSidRef.current,
+          // The lead's actual number (see connectedLegRef's comment) —
+          // call.parameters.From is this agency's own Twilio caller ID, not
+          // the lead's, so it's only the fallback when the SSE feed missed it.
+          from: lead?.phone || call.parameters?.From || 'unknown',
+          name: lead?.name || null,
+          company: lead?.company || null,
+          // The outbound leg's SID (see connectedLegRef's comment) — what
+          // logOutcome needs, not the browser leg's own CallSid.
+          callSid: lead?.callSid ?? null,
           startedAt: Date.now(),
           transcript: preConnectTranscriptRef.current,
         });
         preConnectTranscriptRef.current = '';
-        connectedCallSidRef.current = null;
+        connectedLegRef.current = null;
         setElapsed(0);
         callTimerRef.current = setInterval(() => setElapsed((seconds) => seconds + 1), 1000);
         pushEvent('success', 'Call connected', call.parameters?.From);
@@ -209,6 +255,8 @@ export default function DialerDevice({
           if (info) {
             setLastEndedCall({
               from: info.from,
+              name: info.name,
+              company: info.company,
               callSid: info.callSid,
               endedAt: Date.now(),
               durationSeconds,
@@ -424,10 +472,28 @@ export default function DialerDevice({
   );
 
   const startSession = useCallback(async () => {
-    const leads = leadsText
+    const phones = leadsText
       .split(/[\n,;]+/)
       .map((entry) => entry.trim())
       .filter(Boolean);
+
+    // Attach name/company when this number matches a known contact —
+    // dialerEngine.js carries these through to every SSE event, which is
+    // what powers the screen-pop below. Deliberately NOT contactId: our
+    // local contact record's `id` is this workspace's own
+    // `crypto.randomUUID()`, not a HubSpot object id, and
+    // hubspotService.js#logCallActivity does `args.contactId ??
+    // findContactIdByPhone(phone)` — a truthy-but-wrong id here would skip
+    // that working phone lookup and send HubSpot a garbage association.
+    const leads = phones.map((phone) => {
+      const contact = phoneToContact.get(phone);
+      if (!contact) return phone;
+      return {
+        phone,
+        name: [contact.firstName, contact.lastName].filter(Boolean).join(' ') || null,
+        company: contact.company || null,
+      };
+    });
 
     if (leads.length === 0) {
       pushEvent('warn', 'Add at least one E.164 number before dialing');
@@ -460,7 +526,7 @@ export default function DialerDevice({
     } finally {
       setStarting(false);
     }
-  }, [leadsText, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent, activeListName]);
+  }, [leadsText, phoneToContact, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent, activeListName]);
 
   const stopSession = useCallback(async () => {
     if (!session?.sessionId) return;
@@ -505,7 +571,16 @@ export default function DialerDevice({
             // `call.on('accept')`), then cleared. Best-effort under parallel
             // dial — see each ref's own comment for why.
             preConnectTranscriptRef.current = payload.transcript ?? '';
-            connectedCallSidRef.current = payload.callSid ?? null;
+            // name/company normally arrive from the backend (threaded through
+            // since startSession attached them) — the local lookup is only a
+            // fallback for a session started before that leg carried them.
+            const fallback = payload.phone ? phoneToContactRef.current.get(payload.phone) : null;
+            connectedLegRef.current = {
+              callSid: payload.callSid ?? null,
+              phone: payload.phone ?? null,
+              name: payload.name || (fallback ? [fallback.firstName, fallback.lastName].filter(Boolean).join(' ') : null) || null,
+              company: payload.company || fallback?.company || null,
+            };
           }
           if (name === 'leg:ended' && payload.phone && onLegEnded) {
             onLegEnded({ phone: payload.phone, disposition: payload.disposition ?? 'UNKNOWN', at: Date.now() });
@@ -568,6 +643,43 @@ export default function DialerDevice({
         </div>
       </section>
 
+      {/* Promoted out of the Dial list panel so the numbers that matter mid-
+          shift — how many are left, how many turned into a meeting — are
+          visible without scrolling past whatever's on the line right now. */}
+      {session && (
+        <section className="panel panel--metrics">
+          <h2 className="panel__title">Live metrics</h2>
+          <dl className="facts facts--wide">
+            <div>
+              <dt>Remaining</dt>
+              <dd className="mono">{session.remainingLeads}</dd>
+            </div>
+            <div>
+              <dt>Humans</dt>
+              <dd className="mono">{session.stats?.humans ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Machines</dt>
+              <dd className="mono">{session.stats?.machines ?? 0}</dd>
+            </div>
+            <div>
+              <dt>No answer</dt>
+              <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
+            </div>
+            <div>
+              <dt>Meetings</dt>
+              <dd className="mono">{meetingsBooked}</dd>
+            </div>
+            <div>
+              <dt>Conversion</dt>
+              <dd className="mono">
+                {session.stats?.humans ? `${Math.round((meetingsBooked / session.stats.humans) * 100)}%` : '—'}
+              </dd>
+            </div>
+          </dl>
+        </section>
+      )}
+
       {pendingCall && (
         <section className="panel panel--ringing">
           <h2 className="panel__title">Incoming lead</h2>
@@ -586,7 +698,7 @@ export default function DialerDevice({
       {inCall && (
         <section className="panel panel--live">
           <h2 className="panel__title">On call</h2>
-          <p className="mono outcome__number">{callInfo?.from ?? '—'}</p>
+          <ProspectPop info={callInfo} />
 
           <div className="meters">
             <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
@@ -628,7 +740,7 @@ export default function DialerDevice({
 
           {inCall || lastEndedCall ? (
             <>
-              <p className="mono outcome__number">{(inCall ? callInfo?.from : lastEndedCall?.from) ?? '—'}</p>
+              <ProspectPop info={inCall ? callInfo : lastEndedCall} />
               <textarea
                 className="textarea"
                 rows={3}
@@ -742,31 +854,6 @@ export default function DialerDevice({
             Stop
           </button>
         </div>
-
-        {session && (
-          <dl className="facts facts--wide">
-            <div>
-              <dt>Remaining</dt>
-              <dd className="mono">{session.remainingLeads}</dd>
-            </div>
-            <div>
-              <dt>Humans</dt>
-              <dd className="mono">{session.stats?.humans ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Machines</dt>
-              <dd className="mono">{session.stats?.machines ?? 0}</dd>
-            </div>
-            <div>
-              <dt>No answer</dt>
-              <dd className="mono">{session.stats?.noAnswer ?? 0}</dd>
-            </div>
-            <div>
-              <dt>Meetings</dt>
-              <dd className="mono">{meetingsBooked}</dd>
-            </div>
-          </dl>
-        )}
       </section>
 
       <section className="panel">
@@ -787,6 +874,25 @@ export default function DialerDevice({
           ))}
         </ul>
       </section>
+    </div>
+  );
+}
+
+/** The screen-pop: company/name when the number matches a known contact,
+ * the bare phone number when it doesn't (a freeform-pasted lead, or one from
+ * before this list was ever imported). */
+function ProspectPop({ info }) {
+  if (!info) return <p className="mono outcome__number">—</p>;
+  if (!info.company && !info.name) {
+    return <p className="mono outcome__number">{info.from ?? '—'}</p>;
+  }
+  return (
+    <div className="prospect">
+      {info.company && <p className="prospect__company">{info.company}</p>}
+      <p className="prospect__meta">
+        {info.name && <span className="prospect__name">{info.name}</span>}
+        <span className="mono prospect__phone">{info.from ?? '—'}</span>
+      </p>
     </div>
   );
 }

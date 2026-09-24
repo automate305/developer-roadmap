@@ -253,6 +253,17 @@ textarea:focus-visible {
 .idle__text { margin: 0; color: var(--faint); font-size: 12px; }
 .outcome__number { margin: -4px 0 2px; color: var(--faint); }
 
+/* Screen pop — company is the first thing an agent needs to say back to
+   whoever just picked up, so it leads; the phone number is a fallback for
+   whatever the company doesn't cover. */
+.prospect { margin: -4px 0 2px; }
+.prospect__company { margin: 0; font-size: 19px; font-weight: 700; letter-spacing: -0.4px; color: var(--text); }
+.prospect__meta { margin: 3px 0 0; display: flex; align-items: baseline; gap: 9px; color: var(--faint); }
+.prospect__name { font-size: 13px; font-weight: 650; color: var(--stat); }
+.prospect__phone { font-size: 12px; }
+
+.panel--metrics { border-color: var(--purple-soft); }
+
 /* Present for the life of a campaign, not just mid-call — notes from the
    last call and the disposition buttons both need to survive the gap
    before the next one rings. */

@@ -124,11 +124,12 @@ export default function App() {
 
   const handleStartCampaign = useCallback(
     (list) => {
-      const numbers = contacts
-        .filter((c) => c.listId === list.id && c.phone1)
-        .map((c) => c.phone1)
-        .join('\n');
-      setLoadRequest({ text: numbers, listName: list.name, token: Date.now() });
+      const listContacts = contacts.filter((c) => c.listId === list.id && c.phone1);
+      const numbers = listContacts.map((c) => c.phone1).join('\n');
+      // The full records ride along too, keyed by phone1 in DialerDevice, so
+      // a connected call can screen-pop the company/name instead of just the
+      // number — see DialerDevice's `phoneToContact`.
+      setLoadRequest({ text: numbers, listName: list.name, contacts: listContacts, token: Date.now() });
       setActiveTab('campaigns');
     },
     [contacts],
@@ -201,6 +202,7 @@ export default function App() {
             identity={identity}
             apiKey={apiKey}
             loadRequest={loadRequest}
+            contacts={contacts}
             onLegEnded={handleLegEnded}
             onSessionEnded={handleSessionEnded}
           />

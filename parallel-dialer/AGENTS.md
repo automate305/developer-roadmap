@@ -94,12 +94,26 @@ dead letter (`HUBSPOT_OUTCOME_DEAD_LETTER_PATH`). It is looked up by the
 *outbound leg's* Twilio Call SID — not `call.parameters.CallSid`, which is
 the inbound `<Dial><Client>` leg to the browser and a different call
 entirely from the backend's point of view. `DialerDevice.jsx` captures the
-right one (`connectedCallSidRef`) off the same `leg:classified` SSE event
+right one (`connectedLegRef`) off the same `leg:classified` SSE event
 `preConnectTranscriptRef` already reads, for the same best-effort-under-
 parallel-dial reason. If that ref is empty when the agent logs an outcome,
 the write is skipped with a visible warning rather than silently doing
 nothing — say so the same way if you touch this path and hit a case where
 the SID isn't available yet.
+
+That same ref is also why the "On call" card can screen-pop a company/name
+instead of just a phone number: `call.parameters.From` is this agency's own
+Twilio caller ID (no `callerId` override on the `<Dial>` in
+`dialerEngine.js#connectToAgent`, so Twilio defaults to the parent leg's
+From), never the lead's number, so it was never usable for this either.
+`App.handleStartCampaign` threads each list's `name`/`company` through
+`loadRequest.contacts`; `startSession` attaches them to any lead whose phone
+matches; `dialerEngine.js` carries them on `leg.lead` to every SSE event.
+Deliberately not `contactId`: a workspace contact's `id` is this app's own
+`crypto.randomUUID()`, and `logCallActivity` treats a truthy `contactId` as
+authoritative (skipping its own working `findContactIdByPhone` fallback) —
+sending our local id through would silently break the CRM association. See
+codex-handover.md's former item 3 for the full reasoning if you touch this.
 
 Still genuinely unimplemented: real identity/auth beyond the one shared
 `DIALER_API_KEY`, and routing across more than one agent. Those are still
