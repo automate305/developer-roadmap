@@ -1,36 +1,39 @@
 /**
- * Agent workstation theme — light shell, OUTBOX accents preserved.
+ * Agent workstation theme — charcoal shell, Automate305 purple accents.
  *
- * The five brand hues (purple/green/amber/red/blue) are OUTBOX's exact
- * values, unchanged. Everything else — the neutrals, and every *-text/*-bg/
- * *-line shade derived from those hues — is recomputed for a white shell:
- * OUTBOX itself is dark, and a pastel tuned to sit on near-black (e.g. the
- * old --warn-text #e6b966) fails contrast on white. The purple "glow" the
- * dark theme got from a near-black backdrop instead comes from
- * --panel-shadow: a soft purple halo cast under white cards.
+ * The five brand hues (purple/green/amber/red/blue) are unchanged from the
+ * light theme. Everything else — the neutrals, and every *-text/*-bg/*-line
+ * shade derived from those hues — is recomputed for a charcoal shell: a
+ * pastel tuned to sit on white (e.g. the light theme's --warn-text #92620a)
+ * fails contrast on near-black. Text is near-white throughout, not the usual
+ * dimmed dark-mode grey — the brief this theme was built from asked for
+ * "all white lettering" specifically. The purple glow under every card
+ * carries over unchanged in spirit from the light theme (there it was a
+ * halo under a white card; here it's the same halo, brighter, doing more of
+ * the work since the backdrop no longer supplies its own contrast).
  *
  * Every colour in this file resolves to a token below. Re-skinning is a
  * matter of replacing this block and nothing else.
  */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* ── OUTBOX accent hues (unchanged) ─────────────────────────────────────── */
+  /* ── Brand hues (unchanged from the light theme) ─────────────────────────── */
   --purple: #9b5cf6;
-  --purple-soft: #9b5cf61f;
+  --purple-soft: #9b5cf640;
   --green: #51d99a;
   --amber: #f4bd5f;
   --red: #ff7e70;
   --blue: #65a9ff;
 
-  /* ── Neutrals — purple-tinted, not grey ─────────────────────────────────── */
-  --bg: #f6f3fb;
-  --panel: #ffffff;
-  --panel-2: #f1ecfa;
-  --text: #1e1730;
-  --muted: #6b6478;
-  --line: #e6dff5;
+  /* ── Neutrals — charcoal, not near-black ─────────────────────────────────── */
+  --bg: #18161d;
+  --panel: #211f28;
+  --panel-2: #2a2732;
+  --text: #f7f5fb;
+  --muted: #ada7bd;
+  --line: #383440;
 
   /* ── Semantic aliases for dialer states ────────────────────────────────── */
   --accent: var(--purple);   /* primary action */
@@ -41,78 +44,78 @@
                                 purple primary action */
 
   /* ── Surface treatments ────────────────────────────────────────────────── */
-  --panel-surface: linear-gradient(180deg, #ffffff, #fdfbff);
-  --panel-border: #e7dcfa;
+  --panel-surface: linear-gradient(180deg, #242229, #1e1c24);
+  --panel-border: #3a3542;
   /* The purple glow: a soft, oversized halo under every card, plus a tight
-     neutral shadow for lift and an inset top highlight for edge definition. */
-  --panel-shadow: 0 28px 54px -26px #9b5cf65c, 0 6px 16px -8px #1e173014, inset 0 1px #ffffff;
-  --panel-sheen: linear-gradient(180deg, #ffffffb0, #ffffff00 45%);
-  --shell-glow: #9b5cf626;
-  --grid-line: #1e17300a;
-  --row-line: #1e17300f;
-  --chip-bg: #9b5cf60f;
+     dark shadow for lift and an inset top highlight for edge definition. */
+  --panel-shadow: 0 28px 54px -22px #9b5cf666, 0 10px 22px -10px #00000080, inset 0 1px #ffffff14;
+  --panel-sheen: linear-gradient(180deg, #ffffff12, #ffffff00 45%);
+  --shell-glow: #9b5cf640;
+  --grid-line: #ffffff09;
+  --row-line: #ffffff0d;
+  --chip-bg: #9b5cf626;
 
   /* ── Primary action ────────────────────────────────────────────────────── */
   --action-gradient: linear-gradient(135deg, #8d43e7, #a845f8);
-  --action-shadow: 0 14px 30px -10px #9b5cf673;
+  --action-shadow: 0 14px 30px -10px #9b5cf680;
   --on-action: #fff;      /* text on the purple gradient */
-  --action-text: #6d28d9;
-  --action-bg: #9b5cf614;
-  --action-line: #9b5cf64d;
+  --action-text: #cfb1fb;
+  --action-bg: #9b5cf62b;
+  --action-line: #9b5cf65c;
 
-  /* ── Fields: tinted lavender slabs, distinct from the white panel ───────── */
-  --field-surface: linear-gradient(135deg, #f4effc, #ebe1f9);
-  --field-border: #d9caf2;
-  --field-text: #1e1730;
-  --field-placeholder: #8a7f9c;
-  --field-shadow: inset 0 1px #ffffffb0, inset 0 -1px #1e17300a;
-  --field-focus-line: #9b5cf6;
-  --field-focus-shadow: inset 0 1px #ffffffb0, 0 0 0 3px #9b5cf640, 0 8px 18px -6px #9b5cf654;
-  --focus-ring: #7c3aed99;
+  /* ── Fields: raised charcoal slabs, distinct from the panel behind them ─── */
+  --field-surface: linear-gradient(135deg, #29262f, #302c38);
+  --field-border: #453f52;
+  --field-text: #f7f5fb;
+  --field-placeholder: #857f95;
+  --field-shadow: inset 0 1px #ffffff10, inset 0 -1px #00000040;
+  --field-focus-line: #ad82f8;
+  --field-focus-shadow: inset 0 1px #ffffff10, 0 0 0 3px #9b5cf655, 0 8px 18px -6px #9b5cf670;
+  --focus-ring: #c3a0fbcc;
 
   /* ── State shades ──────────────────────────────────────────────────────── */
-  --good-text: #15803d;
-  --good-bg: #51d99a14;
-  --good-line: #51d99a40;
+  --good-text: #6ee7a8;
+  --good-bg: #51d99a22;
+  --good-line: #51d99a4d;
   --good-glow: #51d99a99;
-  --good-icon: #1c9d5c;
+  --good-icon: #6ee7a8;
 
-  --warn-text: #92620a;
-  --warn-bg: #f4bd5f1a;
-  --warn-line: #f4bd5f40;
-  --warn-btn-bg: #f4bd5f14;
-  --warn-btn-line: #f4bd5f59;
-  --warn-panel-line: #f4bd5f59;
+  --warn-text: #f9cc7d;
+  --warn-bg: #f4bd5f22;
+  --warn-line: #f4bd5f4d;
+  --warn-btn-bg: #f4bd5f1f;
+  --warn-btn-line: #f4bd5f5c;
+  --warn-panel-line: #f4bd5f5c;
 
-  --live-text: #1d4ed8;
-  --live-bg: #65a9ff16;
-  --live-line: #65a9ff40;
+  --live-text: #8fc0ff;
+  --live-bg: #65a9ff22;
+  --live-line: #65a9ff4d;
   --live-glow: #65a9ff99;
-  --live-panel-line: #65a9ff59;
+  --live-panel-line: #65a9ff5c;
 
-  --bad-text: #c0281a;
-  --bad-bg: #ff7e7014;
-  --bad-line: #ff7e7040;
-  --bad-btn-bg: #ff7e7014;
-  --bad-btn-line: #ff7e7059;
-  --alert-text: #a3241a;
-  --alert-bg: #ff7e700d;
-  --alert-line: #ff7e7040;
+  --bad-text: #ffa398;
+  --bad-bg: #ff7e7022;
+  --bad-line: #ff7e704d;
+  --bad-btn-bg: #ff7e701f;
+  --bad-btn-line: #ff7e705c;
+  --alert-text: #ffa398;
+  --alert-bg: #ff7e701a;
+  --alert-line: #ff7e704d;
 
-  /* ── Text shades ───────────────────────────────────────────────────────── */
-  --kicker: #8a7f9c;      /* eyebrow / section label */
-  --label: #756a8a;       /* form labels */
-  --dt: #8a7f9c;          /* definition terms */
-  --meter-label: #8a7f9c;
-  --time: #a196b3;
-  --faint: #a196b3;
-  --log-text: #2e2640;
-  --log-muted: #6b6478;
-  --stat: #4b3f66;
+  /* ── Text shades — near-white, dimmed only enough to keep hierarchy ─────── */
+  --kicker: #b3adc4;      /* eyebrow / section label */
+  --label: #bfb9ce;       /* form labels */
+  --dt: #b3adc4;          /* definition terms */
+  --meter-label: #b3adc4;
+  --time: #9791a7;
+  --faint: #9791a7;
+  --log-text: #f4f2f9;
+  --log-muted: #ada7bd;
+  --stat: #ece8f5;
 
   /* ── Meters ────────────────────────────────────────────────────────────── */
-  --meter-track: #1e17300f;
-  --meter-fill: linear-gradient(90deg, #7133c4, #a768f5);
+  --meter-track: #ffffff16;
+  --meter-fill: linear-gradient(90deg, #8d43e7, #c294fc);
 
   --radius: 14px;
   --radius-sm: 8px;
