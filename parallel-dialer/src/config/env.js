@@ -110,6 +110,9 @@ export const config = Object.freeze({
     initialSpeechTimeoutMs: int('AMD_INITIAL_SPEECH_TIMEOUT_MS', 3800),
     maxContinuousSpeechMs: int('AMD_MAX_CONTINUOUS_SPEECH_MS', 2800),
     decisionDeadlineMs: int('AMD_DECISION_DEADLINE_MS', 9000),
+    // Every classification decision, with the evidence and the config that
+    // produced it. Without this the false-MACHINE rate is unmeasurable.
+    auditPath: str('AMD_AUDIT_PATH', './data/amd-audit.jsonl'),
   },
 
   dialer: {
@@ -167,14 +170,20 @@ export function validateConfig() {
   if (!config.dialerApiKey && config.isProduction) {
     warnings.push('DIALER_API_KEY is unset in production — control endpoints are unauthenticated.');
   }
-  if (config.isProduction && config.hubspot.accessToken && !config.hubspot.deadLetterPath.startsWith('/')) {
-    // A relative path on a container platform lands on the ephemeral layer and
-    // is wiped by the next deploy — which silently undoes the whole point of
-    // the dead letter. Mount a volume and point at it with an absolute path.
-    warnings.push(
-      `HUBSPOT_DEAD_LETTER_PATH is relative ("${config.hubspot.deadLetterPath}") — on a container platform ` +
-        'this is ephemeral and failed CRM writes will be lost on redeploy. Mount a volume and set an absolute path.',
-    );
+  // A relative path on a container platform lands on the ephemeral layer and is
+  // wiped by the next deploy. Both of these files exist precisely to survive
+  // that, so a relative path silently undoes the thing they are for.
+  const durable = [
+    ['HUBSPOT_DEAD_LETTER_PATH', config.hubspot.deadLetterPath, 'failed CRM writes', config.hubspot.accessToken],
+    ['AMD_AUDIT_PATH', config.amd.auditPath, 'the record of every answer-detection decision', true],
+  ];
+  for (const [name, value, what, applies] of durable) {
+    if (config.isProduction && applies && value && !value.startsWith('/')) {
+      warnings.push(
+        `${name} is relative ("${value}") — on a container platform this is ephemeral and ` +
+          `${what} will be lost on redeploy. Mount a volume and set an absolute path.`,
+      );
+    }
   }
 
   return { ok: missing.length === 0, missing, warnings };

@@ -24,6 +24,7 @@ import { dialerEngine } from './backend/dialerEngine.js';
 import { handleMediaStreamConnection } from './backend/streamHandler.js';
 import { logCallActivity, findCallByExternalId, isHubSpotConfigured } from './backend/hubspotService.js';
 import { CallActivityQueue } from './backend/callActivityQueue.js';
+import { AmdAuditLog, attachClassificationAudit } from './backend/classificationAudit.js';
 import { createApiRouter } from './backend/routes/api.js';
 import { createTwimlRouter } from './backend/routes/twiml.js';
 import { createWebhookRouter } from './backend/routes/webhooks.js';
@@ -199,6 +200,11 @@ export async function start() {
   const wss = attachMediaStreamServer(server, { engine: dialerEngine });
   const crmQueue = attachCrmLogging(dialerEngine);
 
+  // Records every AMD verdict with its evidence. Subscribes to an event the
+  // engine already emits, so the classification path is untouched.
+  const amdAudit = new AmdAuditLog({ filePath: config.amd.auditPath });
+  attachClassificationAudit(dialerEngine, amdAudit);
+
   // Anything stranded by a previous shutdown or outage goes back in first.
   if (crmQueue && config.hubspot.replayDeadLetterOnBoot) {
     crmQueue
@@ -244,6 +250,8 @@ export async function start() {
       const stranded = await crmQueue.close();
       if (stranded > 0) log.warn('flushed pending call activities to dead letter', { stranded });
     }
+
+    await amdAudit.flush();
 
     server.close(() => process.exit(0));
     // Do not let a hung socket block the exit indefinitely.

@@ -51,11 +51,36 @@ Nothing here is optional. Until these pass, the system is unproven.
 2.2, 2.3 and 2.4 are **done**, on branch `claude/parallel-dialer-hubspot-retries`.
 2.1 and 2.5 need real calls and are still open.
 
-### 2.1 Measure the latency you are actually getting
-`classificationLatencyMs` is already recorded on every leg. "Sub-300 ms" is a design
+### 2.1 Measure the latency, and the error you cannot see
+`classificationLatencyMs` is recorded on every leg. "Sub-300 ms" is a design
 target, not a measurement. Collect a few dozen calls, split by verdict, and tune
 `AMD_INITIAL_SPEECH_TIMEOUT_MS`, `AMD_MAX_CONTINUOUS_SPEECH_MS` and the
 `HUMAN_MAX_WORDS` threshold against what you see. Expect the defaults to be wrong.
+
+**Latency is the easy half. The hard half is that the dialer can only ever
+observe one of its two error types.** A false HUMAN is visible — the agent picks
+up and hears a recording. A false MACHINE is invisible: the leg was hung up, so
+nothing downstream ever learns it was a person. Same for a false NO_ANSWER.
+
+Tuning on production behaviour alone would therefore tighten steadily toward
+MACHINE, because the cost of tightening is the one number the system never sees.
+You end up confident, well-tuned and wrong.
+
+`AMD_AUDIT_PATH` now records every decision with its transcript, reason, latency
+and a fingerprint of the config in force. Label a sample of the MACHINE and
+NO_ANSWER records by reading their transcripts, then run:
+
+```bash
+npm run score:amd -- /data/amd-audit.jsonl
+```
+
+It reports verdict counts and latency percentiles from traffic alone, the
+confusion matrix once labels exist, and — importantly — which verdicts are still
+unlabelled, so a blind spot reads as a blind spot rather than a good score.
+Records are grouped by config fingerprint: change a threshold or a pattern and
+earlier decisions are answers to a different question, so they are not pooled.
+
+150–200 labelled MACHINE verdicts is enough to see a real problem.
 
 ### 2.2 Fix the CRM agent misattribution — **done**
 Each leg now carries the `agentIdentity` of the session that dialed it, and

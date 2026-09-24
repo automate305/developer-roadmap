@@ -18,7 +18,8 @@
     "preview:web": "vite preview",
     "dev:all": "concurrently -n api,web -c blue,magenta \"npm:dev\" \"npm:dev:web\"",
     "lint": "eslint src",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "score:amd": "node scripts/score-amd.mjs"
   },
   "keywords": [
     "parallel-dialer",

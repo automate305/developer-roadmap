@@ -103,7 +103,7 @@ export const HUMAN_GREETINGS = [
 ];
 
 /** A human greeting is short. Anything longer is a scripted recording. */
-const HUMAN_MAX_WORDS = 7;
+export const HUMAN_MAX_WORDS = 7;
 
 /**
  * Pure classifier over a transcript fragment. Exported so the decision logic is
