@@ -48,30 +48,34 @@ Nothing here is optional. Until these pass, the system is unproven.
 
 ## Gate 2 — before dialing real prospects
 
+2.2, 2.3 and 2.4 are **done**, on branch `claude/parallel-dialer-hubspot-retries`.
+2.1 and 2.5 need real calls and are still open.
+
 ### 2.1 Measure the latency you are actually getting
 `classificationLatencyMs` is already recorded on every leg. "Sub-300 ms" is a design
 target, not a measurement. Collect a few dozen calls, split by verdict, and tune
 `AMD_INITIAL_SPEECH_TIMEOUT_MS`, `AMD_MAX_CONTINUOUS_SPEECH_MS` and the
 `HUMAN_MAX_WORDS` threshold against what you see. Expect the defaults to be wrong.
 
-### 2.2 Fix the CRM agent misattribution
-`src/server.js:156` and `:193` pass `config.dialer.agentIdentity` — a global — into
-`logCallActivity`. Every call is logged against the default agent regardless of who
-took it. Thread the leg's own session `agentIdentity` through instead.
-*Effort: 1 h with a test.*
+### 2.2 Fix the CRM agent misattribution — **done**
+Each leg now carries the `agentIdentity` of the session that dialed it, and
+`snapshotLeg` exposes it, so CRM logging attributes a call to the agent who took
+it rather than to the process default.
 
-### 2.3 Stop losing CRM writes silently
-`logCallActivity` returns `{ ok: false, reason }` on failure and `server.js` only
-logs it. A HubSpot outage or a rate-limit means those call records are gone with no
-retry and no dead-letter. Add a bounded retry queue, and persist failures somewhere
-you can replay from.
-*Effort: half a day. This is data loss, not inconvenience.*
+### 2.3 Stop losing CRM writes silently — **done**
+Writes go through `src/backend/callActivityQueue.js`: exponential backoff with
+jitter on transient failures, no retry on terminal ones, an idempotency probe
+against `hs_call_external_id` before every retry so a lost response cannot create
+a duplicate, and a dead-letter file for anything that still fails. Pending writes
+are flushed to that file on shutdown and replayed on boot.
 
-### 2.4 Bound the lead queue's de-dupe set
-`LeadQueue.seen` (`src/backend/hubspotService.js:158`) is only emptied by `clear()`.
-A long-running process accumulates one entry per lead forever. Needs a TTL or a
-bounded structure.
-*Effort: 1 h with a test.*
+Operational note: **monitor the dead-letter file.** A non-empty
+`HUBSPOT_DEAD_LETTER_PATH` means real conversations are missing from the CRM.
+
+### 2.4 Bound the lead queue's de-dupe set — **done**
+`LeadQueue.seen` is a `Map` with a TTL (default 6 h) and a hard entry ceiling,
+evicting oldest-first. A lead can also legitimately be re-dialed once its entry
+expires, which the old unbounded `Set` prevented forever.
 
 ### 2.5 Confirm the abandonment rate in practice
 The abandoned-call path and per-session counter exist and are tested, but have never

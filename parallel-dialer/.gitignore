@@ -1,5 +1,8 @@
 node_modules/
 dist/
+
+# runtime state: CRM dead letter
+data/
 .env
 .env.local
 .env.*.local

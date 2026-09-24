@@ -22,7 +22,8 @@ import { config, validateConfig } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { dialerEngine } from './backend/dialerEngine.js';
 import { handleMediaStreamConnection } from './backend/streamHandler.js';
-import { logCallActivity, isHubSpotConfigured } from './backend/hubspotService.js';
+import { logCallActivity, findCallByExternalId, isHubSpotConfigured } from './backend/hubspotService.js';
+import { CallActivityQueue } from './backend/callActivityQueue.js';
 import { createApiRouter } from './backend/routes/api.js';
 import { createTwimlRouter } from './backend/routes/twiml.js';
 import { createWebhookRouter } from './backend/routes/webhooks.js';
@@ -135,28 +136,47 @@ export function attachMediaStreamServer(server, { engine = dialerEngine } = {}) 
 /**
  * Post-call CRM logging. Bound to `leg:ended` rather than awaited inline in the
  * engine so a slow HubSpot write can never delay the next batch.
+ *
+ * Writes go through a durable retry queue: transient failures back off and try
+ * again, retries are de-duplicated against the existing engagement, and
+ * anything that still fails is written to a dead-letter file rather than lost.
+ *
+ * @returns {CallActivityQueue|null} the queue, so shutdown can flush it
  */
 function attachCrmLogging(engine) {
   if (!isHubSpotConfigured()) {
     log.warn('HubSpot not configured — call activities will not be logged');
-    return;
+    return null;
   }
+
+  const queue = new CallActivityQueue({
+    submit: (payload) => logCallActivity(payload),
+    findExisting: (callSid) => findCallByExternalId(callSid),
+    deadLetterPath: config.hubspot.deadLetterPath,
+  });
+
+  queue.on('dead-letter', ({ payload, reason }) => {
+    log.error('call activity could not be written to HubSpot', { callSid: payload?.callSid, reason });
+  });
 
   engine.on('leg:ended', (leg) => {
     // Legs that never connected to a carrier have nothing worth a timeline entry.
     if (!leg.callSid) return;
 
-    logCallActivity({
+    queue.enqueue({
       contactId: leg.contactId,
       phone: leg.phone,
       durationSeconds: leg.durationSeconds,
       disposition: leg.disposition ?? 'FAILED',
       transcript: leg.transcript,
       callSid: leg.callSid,
-      agentIdentity: config.dialer.agentIdentity,
+      // The agent who actually took this leg, not the process default.
+      agentIdentity: leg.agentIdentity ?? config.dialer.agentIdentity,
       timestamp: leg.answeredAt ?? Date.now(),
-    }).catch((err) => log.warn('CRM logging rejected', { legId: leg.legId, err }));
+    });
   });
+
+  return queue;
 }
 
 /** Boot the process. */
@@ -177,7 +197,17 @@ export async function start() {
   server.headersTimeout = 80000;
 
   const wss = attachMediaStreamServer(server, { engine: dialerEngine });
-  attachCrmLogging(dialerEngine);
+  const crmQueue = attachCrmLogging(dialerEngine);
+
+  // Anything stranded by a previous shutdown or outage goes back in first.
+  if (crmQueue && config.hubspot.replayDeadLetterOnBoot) {
+    crmQueue
+      .replayDeadLetter()
+      .then((replayed) => {
+        if (replayed > 0) log.info('replayed dead-lettered call activities on boot', { replayed });
+      })
+      .catch((err) => log.warn('dead-letter replay failed', { err }));
+  }
 
   // Reclaim finished batches so the in-memory indexes do not grow unbounded.
   const pruneTimer = setInterval(() => dialerEngine.pruneResolved(), 60000);
@@ -207,6 +237,13 @@ export async function start() {
     await Promise.allSettled(
       dialerEngine.listSessions().map((session) => dialerEngine.stopSession(session.sessionId, 'server_shutdown')),
     );
+
+    // Push any half-retried CRM writes to disk so the next boot can replay
+    // them. Without this a SIGTERM mid-backoff loses those call records.
+    if (crmQueue) {
+      const stranded = await crmQueue.close();
+      if (stranded > 0) log.warn('flushed pending call activities to dead letter', { stranded });
+    }
 
     server.close(() => process.exit(0));
     // Do not let a hung socket block the exit indefinitely.
