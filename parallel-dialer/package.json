@@ -14,6 +14,7 @@
     "dev": "node --watch src/server.js",
     "dev:web": "vite",
     "build:web": "vite build",
+    "build": "npm run build:web",
     "preview:web": "vite preview",
     "dev:all": "concurrently -n api,web -c blue,magenta \"npm:dev\" \"npm:dev:web\"",
     "lint": "eslint src",

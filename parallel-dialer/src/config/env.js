@@ -45,7 +45,31 @@ function list(name, fallback) {
     .filter(Boolean);
 }
 
-const publicBaseUrl = (str('PUBLIC_BASE_URL', 'http://localhost:3000') ?? '').replace(/\/+$/, '');
+/**
+ * The public HTTPS origin Twilio must reach.
+ *
+ * Getting this wrong fails quietly and badly: it is both the base for TwiML
+ * callback URLs and the origin of the `wss://` Media Stream URL, and it is what
+ * the Twilio signature is validated against. So on a platform that publishes
+ * its own hostname we derive it rather than making someone retype it.
+ *
+ * Precedence: an explicit PUBLIC_BASE_URL (a custom domain) wins; then the
+ * platform-provided domain; then localhost for development.
+ */
+export function derivePublicBaseUrl() {
+  const explicit = str('PUBLIC_BASE_URL');
+  if (explicit) return explicit.replace(/\/+$/, '');
+
+  // Railway injects this for any service with a public domain attached.
+  const railwayDomain = str('RAILWAY_PUBLIC_DOMAIN');
+  if (railwayDomain) {
+    return `https://${railwayDomain.replace(/^https?:\/\//, '').replace(/\/+$/, '')}`;
+  }
+
+  return 'http://localhost:3000';
+}
+
+const publicBaseUrl = derivePublicBaseUrl();
 
 export const config = Object.freeze({
   env: str('NODE_ENV', 'development'),
@@ -142,6 +166,15 @@ export function validateConfig() {
   }
   if (!config.dialerApiKey && config.isProduction) {
     warnings.push('DIALER_API_KEY is unset in production — control endpoints are unauthenticated.');
+  }
+  if (config.isProduction && config.hubspot.accessToken && !config.hubspot.deadLetterPath.startsWith('/')) {
+    // A relative path on a container platform lands on the ephemeral layer and
+    // is wiped by the next deploy — which silently undoes the whole point of
+    // the dead letter. Mount a volume and point at it with an absolute path.
+    warnings.push(
+      `HUBSPOT_DEAD_LETTER_PATH is relative ("${config.hubspot.deadLetterPath}") — on a container platform ` +
+        'this is ephemeral and failed CRM writes will be lost on redeploy. Mount a volume and set an absolute path.',
+    );
   }
 
   return { ok: missing.length === 0, missing, warnings };
