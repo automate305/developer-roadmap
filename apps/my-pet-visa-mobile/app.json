@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "PetViza",
+    "slug": "petviza",
+    "scheme": "petviza",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/petviza-logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#CAD9EC"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.mypetviza.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "PetViza uses the camera so you can snap a photo of your pet's vaccination records and travel documents.",
+        "NSPhotoLibraryUsageDescription": "PetViza needs photo access so you can attach pictures of your pet's documents."
+      }
+    },
+    "android": {
+      "package": "com.mypetviza.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/petviza-logo.png",
+        "backgroundColor": "#CAD9EC"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_MEDIA_IMAGES"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "PetViza needs photo access so you can attach pictures of your pet's documents.",
+          "cameraPermission": "PetViza uses the camera so you can snap a photo of your pet's documents."
+        }
+      ],
+      "expo-document-picker"
+    ],
+    "extra": {
+      "intakeUrl": "",
+      "clinicPhone": "",
+      "clinicEmail": "petvizatraveling@gmail.com"
+    }
+  }
+}
