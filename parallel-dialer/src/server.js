@@ -22,12 +22,19 @@ import { config, validateConfig } from './config/env.js';
 import { logger } from './utils/logger.js';
 import { dialerEngine } from './backend/dialerEngine.js';
 import { handleMediaStreamConnection } from './backend/streamHandler.js';
-import { logCallActivity, findCallByExternalId, isHubSpotConfigured } from './backend/hubspotService.js';
+import {
+  logCallActivity,
+  findCallByExternalId,
+  appendCallOutcome,
+  isHubSpotConfigured,
+} from './backend/hubspotService.js';
 import { CallActivityQueue } from './backend/callActivityQueue.js';
 import { AmdAuditLog, attachClassificationAudit } from './backend/classificationAudit.js';
+import { WorkspaceStore } from './backend/workspaceStore.js';
 import { createApiRouter } from './backend/routes/api.js';
 import { createTwimlRouter } from './backend/routes/twiml.js';
 import { createWebhookRouter } from './backend/routes/webhooks.js';
+import { createWorkspaceRouter } from './backend/routes/workspace.js';
 
 const log = logger.child({ module: 'server' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -36,7 +43,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  * Build the Express app. Exported so integration tests can mount it without
  * binding a port.
  */
-export function createApp({ engine = dialerEngine } = {}) {
+export function createApp({
+  engine = dialerEngine,
+  store = new WorkspaceStore({ dataDir: config.workspace.dataDir }),
+  outcomeQueue = null,
+} = {}) {
   const app = express();
 
   app.disable('x-powered-by');
@@ -73,6 +84,7 @@ export function createApp({ engine = dialerEngine } = {}) {
 
   // ── Control plane + Twilio voice webhooks ────────────────────────────────
   app.use('/api', createApiRouter({ engine }));
+  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue }));
   app.use('/twiml', createTwimlRouter({ engine }));
 
   // Convenience alias so infrastructure health checks need no /api prefix.
@@ -180,6 +192,31 @@ function attachCrmLogging(engine) {
   return queue;
 }
 
+/**
+ * Durable queue for agent-logged outcomes (Meeting booked / Follow up / Not
+ * interested — see hubspotService.js#appendCallOutcome). Kept separate from
+ * `attachCrmLogging`'s queue because it writes a different thing (an update
+ * to an existing engagement, not a create) and needs its own dead letter.
+ *
+ * @returns {CallActivityQueue|null}
+ */
+function attachOutcomeLogging() {
+  if (!isHubSpotConfigured()) return null;
+
+  const queue = new CallActivityQueue({
+    submit: (payload) => appendCallOutcome(payload),
+    // No `findExisting` here — see appendCallOutcome's own doc comment for
+    // why the create-path idempotency probe doesn't apply to an update.
+    deadLetterPath: config.hubspot.outcomeDeadLetterPath,
+  });
+
+  queue.on('dead-letter', ({ payload, reason }) => {
+    log.error('agent outcome could not be written to HubSpot', { callSid: payload?.callSid, reason });
+  });
+
+  return queue;
+}
+
 /** Boot the process. */
 export async function start() {
   const { ok, missing, warnings } = validateConfig();
@@ -189,7 +226,13 @@ export async function start() {
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
   }
 
-  const app = createApp({ engine: dialerEngine });
+  // Load before the app is built so the very first request already sees
+  // whatever survived the last restart, rather than an empty store.
+  const store = new WorkspaceStore({ dataDir: config.workspace.dataDir });
+  await store.load();
+  const outcomeQueue = attachOutcomeLogging();
+
+  const app = createApp({ engine: dialerEngine, store, outcomeQueue });
   const server = http.createServer(app);
 
   // Twilio holds media sockets open for the life of a call; the default 5 s
@@ -213,6 +256,14 @@ export async function start() {
         if (replayed > 0) log.info('replayed dead-lettered call activities on boot', { replayed });
       })
       .catch((err) => log.warn('dead-letter replay failed', { err }));
+  }
+  if (outcomeQueue && config.hubspot.replayDeadLetterOnBoot) {
+    outcomeQueue
+      .replayDeadLetter()
+      .then((replayed) => {
+        if (replayed > 0) log.info('replayed dead-lettered agent outcomes on boot', { replayed });
+      })
+      .catch((err) => log.warn('outcome dead-letter replay failed', { err }));
   }
 
   // Reclaim finished batches so the in-memory indexes do not grow unbounded.
@@ -249,6 +300,10 @@ export async function start() {
     if (crmQueue) {
       const stranded = await crmQueue.close();
       if (stranded > 0) log.warn('flushed pending call activities to dead letter', { stranded });
+    }
+    if (outcomeQueue) {
+      const stranded = await outcomeQueue.close();
+      if (stranded > 0) log.warn('flushed pending agent outcomes to dead letter', { stranded });
     }
 
     await amdAudit.flush();

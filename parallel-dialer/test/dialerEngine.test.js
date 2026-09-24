@@ -133,3 +133,88 @@ describe('DialerEngine batch race', () => {
     assert.equal(harness.hungUp.length, 2);
   });
 });
+
+describe('power-dial mode (screening: false)', () => {
+  let harness;
+  beforeEach(() => {
+    harness = makeHarness();
+  });
+
+  /** Start a one-line power-dial session and return its only leg snapshot. */
+  async function startPowerDial(overrides = {}) {
+    const session = await harness.engine.startSession({
+      leads: [LEADS[0]], batchSize: 1, autoAdvance: false, screening: false, ...overrides,
+    });
+    return session.currentBatch.legs[0];
+  }
+
+  it('bridges the agent on answer, without waiting for a verdict', async () => {
+    const leg = await startPowerDial();
+    assert.equal(harness.redirected.length, 0, 'nothing bridged before the answer');
+
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+
+    assert.equal(harness.redirected.length, 1);
+    assert.match(harness.redirected[0].twiml, /<Client>agent_1<\/Client>/);
+    const after = harness.engine.getLeg(leg.legId);
+    assert.equal(after.state, LegState.CONNECTED);
+    assert.equal(after.disposition, Disposition.HUMAN);
+  });
+
+  it('does not bridge twice when Twilio re-delivers the answer callback', async () => {
+    const leg = await startPowerDial();
+
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+
+    assert.equal(harness.redirected.length, 1, 're-delivered callback must not re-bridge');
+  });
+
+  it('records a MACHINE verdict but never hangs up on it', async () => {
+    const leg = await startPowerDial();
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+
+    const events = [];
+    harness.engine.on('leg:classified', (e) => events.push(e));
+
+    await harness.engine.classify({ legId: leg.legId }, 'MACHINE', { latencyMs: 900, reason: 'test' });
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0].classification, 'MACHINE');
+    assert.equal(events[0].acted, false, 'verdict is recorded, not acted on');
+    assert.equal(harness.hungUp.length, 0, 'a wrong verdict must not drop a live call');
+
+    const after = harness.engine.getLeg(leg.legId);
+    assert.equal(after.state, LegState.CONNECTED, 'still bridged to the agent');
+    assert.equal(after.disposition, Disposition.HUMAN);
+    assert.equal(after.classificationLatencyMs, 900, 'latency still recorded for scoring');
+  });
+
+  it('still screens when screening is left at its default', async () => {
+    const session = await harness.engine.startSession({
+      leads: [LEADS[0]], batchSize: 1, autoAdvance: false,
+    });
+    const leg = session.currentBatch.legs[0];
+
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+    assert.equal(harness.redirected.length, 0, 'screened mode waits for a verdict');
+
+    await harness.engine.classify({ legId: leg.legId }, 'MACHINE', { reason: 'test' });
+    assert.equal(harness.hungUp.length, 1, 'screened mode still drops a machine');
+  });
+});
+
+describe('power-dial mode interlock', () => {
+  it('forces batchSize 1 so no leg can be abandoned without an announcement', async () => {
+    const harness = makeHarness();
+    const session = await harness.engine.startSession({
+      leads: LEADS, batchSize: 5, autoAdvance: false, screening: false,
+    });
+
+    // With screening off the abandoned-call path in classify() never runs, so
+    // a losing leg would be hung up on silently. One line makes that
+    // impossible rather than relying on a later guard.
+    assert.equal(session.batchSize, 1);
+    assert.equal(session.currentBatch.legs.length, 1);
+  });
+});

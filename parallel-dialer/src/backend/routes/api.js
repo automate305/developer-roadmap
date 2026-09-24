@@ -77,10 +77,14 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
 
   /**
    * Start a dialing session.
-   * Body: `{ agentIdentity?, leads: [string | {phone, contactId, name, company}], batchSize?, autoAdvance? }`
+   * Body: `{ agentIdentity?, leads: [string | {phone, contactId, name, company}],
+   *   batchSize?, autoAdvance?, screening? }`
+   *
+   * `screening: false` with `batchSize: 1` is power-dial mode: one line, agent
+   * bridged on answer, no AMD verdict acted on.
    */
   router.post('/sessions', requireApiKey, async (req, res) => {
-    const { agentIdentity, leads, batchSize, autoAdvance } = req.body ?? {};
+    const { agentIdentity, leads, batchSize, autoAdvance, screening } = req.body ?? {};
 
     if (!Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ error: 'leads_required' });
@@ -95,7 +99,10 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
     }
 
     try {
-      const session = await engine.startSession({ agentIdentity, leads, batchSize, autoAdvance });
+      const session = await engine.startSession({
+        agentIdentity, leads, batchSize, autoAdvance,
+        ...(screening === undefined ? {} : { screening: Boolean(screening) }),
+      });
       return res.status(201).json(session);
     } catch (err) {
       log.error('failed to start session', { err });

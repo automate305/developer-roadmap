@@ -495,6 +495,84 @@ export async function findCallByExternalId(callSid) {
   return response.results?.[0]?.id ?? null;
 }
 
+/**
+ * Outcomes an agent logs by hand (see `DialerDevice.jsx`'s "Call notes"
+ * card) — distinct from the AMD dispositions in `CALL_STATUS_MAP`, which the
+ * engine writes automatically. Keyed the same way the frontend keys them.
+ */
+export const AGENT_OUTCOME_LABELS = Object.freeze({
+  meeting: 'Meeting booked',
+  callback: 'Follow up',
+  not_interested: 'Not interested',
+});
+
+/**
+ * The text appended to a Call engagement's body for one logged outcome.
+ * Pure and exported so the idempotency check below is testable without a
+ * HubSpot client.
+ * @param {{ outcome: keyof typeof AGENT_OUTCOME_LABELS, notes?: string }} args
+ */
+export function buildOutcomeLine({ outcome, notes = '' }) {
+  const lines = [`Agent outcome: ${AGENT_OUTCOME_LABELS[outcome]}`];
+  if (notes.trim()) lines.push(notes.trim());
+  return lines.join('\n');
+}
+
+/**
+ * Append the agent's own outcome onto the Call engagement `logCallActivity`
+ * already wrote for this `callSid` — never a second engagement for the same
+ * call. Looked up by `callSid` because that's the only identifier both the
+ * backend leg and the frontend's SSE-derived `callInfo` agree on; see
+ * `DialerDevice.jsx`.
+ *
+ * Not routed through `CallActivityQueue`'s `findExisting` idempotency probe:
+ * that probe means "an engagement already exists, so the create it's
+ * guarding against would duplicate it" — here the engagement is expected to
+ * already exist (found by SID), so its presence says nothing about whether
+ * *this outcome* was already appended to it. Idempotency for a retried write
+ * is instead: skip the append if the body already ends with this exact line.
+ *
+ * @param {{ callSid: string, outcome: string, notes?: string }} args
+ * @returns {Promise<{ ok: boolean, id?: string, reason?: string, error?: unknown }>}
+ */
+export async function appendCallOutcome({ callSid, outcome, notes = '' }) {
+  // Shape first, configuration second: a malformed request is a 400
+  // regardless of whether HubSpot happens to be configured, and checking it
+  // first means these two branches are testable without a live client.
+  if (!callSid) return { ok: false, reason: 'callSid_required' };
+  if (!AGENT_OUTCOME_LABELS[outcome]) return { ok: false, reason: 'invalid_outcome' };
+  if (!isHubSpotConfigured()) return { ok: false, reason: 'hubspot_not_configured' };
+
+  const engagementId = await findCallByExternalId(callSid);
+  if (!engagementId) {
+    // The AMD-disposition write for this leg hasn't landed yet — plausible
+    // when the agent logs an outcome mid-call, before `leg:ended` fires and
+    // `logCallActivity` creates the engagement. Retryable: the caller's
+    // queue decides how long to keep trying before giving up.
+    return { ok: false, reason: 'engagement_not_found' };
+  }
+
+  try {
+    const hubspot = getHubSpotClient();
+    const existing = await hubspot.crm.objects.calls.basicApi.getById(engagementId, ['hs_call_body']);
+    const currentBody = existing.properties?.hs_call_body ?? '';
+    const appended = buildOutcomeLine({ outcome, notes });
+
+    if (currentBody.trimEnd().endsWith(appended)) {
+      return { ok: true, id: engagementId };
+    }
+
+    const nextBody = currentBody ? `${currentBody}\n\n${appended}` : appended;
+    await hubspot.crm.objects.calls.basicApi.update(engagementId, { properties: { hs_call_body: nextBody } });
+
+    log.info('call outcome appended', { engagementId, callSid, outcome });
+    return { ok: true, id: engagementId };
+  } catch (err) {
+    log.warn('failed to append call outcome', { engagementId, callSid, err });
+    return { ok: false, reason: err?.message ?? 'unknown_error', error: err };
+  }
+}
+
 /** Human-readable timeline body. */
 function buildCallBody({ disposition, transcript, callSid, agentIdentity, durationSeconds }) {
   const lines = [
@@ -544,5 +622,8 @@ export default {
   findContactIdByPhone,
   logCallActivity,
   findCallByExternalId,
+  appendCallOutcome,
+  buildOutcomeLine,
+  AGENT_OUTCOME_LABELS,
   normalizePhone,
 };

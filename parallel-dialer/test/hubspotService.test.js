@@ -6,7 +6,14 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { describe, it } from 'node:test';
 
-import { LeadQueue, normalizePhone, verifySignatureV3 } from '../src/backend/hubspotService.js';
+import {
+  LeadQueue,
+  normalizePhone,
+  verifySignatureV3,
+  appendCallOutcome,
+  buildOutcomeLine,
+  AGENT_OUTCOME_LABELS,
+} from '../src/backend/hubspotService.js';
 
 const SECRET = 'test-client-secret';
 const URI = 'https://dialer.example.com/api/webhooks/hubspot-lead';
@@ -149,5 +156,52 @@ describe('normalizePhone', () => {
   it('returns an empty string for unusable input', () => {
     assert.equal(normalizePhone(''), '');
     assert.equal(normalizePhone('12345'), '');
+  });
+});
+
+describe('buildOutcomeLine', () => {
+  it('renders the outcome label with no notes', () => {
+    assert.equal(buildOutcomeLine({ outcome: 'meeting' }), `Agent outcome: ${AGENT_OUTCOME_LABELS.meeting}`);
+  });
+
+  it('appends trimmed notes on their own line', () => {
+    assert.equal(
+      buildOutcomeLine({ outcome: 'callback', notes: '  call back Thursday  ' }),
+      `Agent outcome: ${AGENT_OUTCOME_LABELS.callback}\ncall back Thursday`,
+    );
+  });
+
+  it('omits the notes line entirely when notes are blank', () => {
+    assert.equal(
+      buildOutcomeLine({ outcome: 'not_interested', notes: '   ' }),
+      `Agent outcome: ${AGENT_OUTCOME_LABELS.not_interested}`,
+    );
+  });
+
+  it('is deterministic for the same input, which is what the retry idempotency check relies on', () => {
+    const a = buildOutcomeLine({ outcome: 'meeting', notes: 'x' });
+    const b = buildOutcomeLine({ outcome: 'meeting', notes: 'x' });
+    assert.equal(a, b);
+  });
+});
+
+describe('appendCallOutcome', () => {
+  // No HUBSPOT_ACCESS_TOKEN in the test environment, so only the input-shape
+  // guards are reachable without a live client — checked first for exactly
+  // this reason (see the function's own comment).
+
+  it('rejects a missing callSid without needing HubSpot configured', async () => {
+    const result = await appendCallOutcome({ callSid: '', outcome: 'meeting' });
+    assert.deepEqual(result, { ok: false, reason: 'callSid_required' });
+  });
+
+  it('rejects an outcome that is not one of the known keys', async () => {
+    const result = await appendCallOutcome({ callSid: 'CA123', outcome: 'not_a_real_outcome' });
+    assert.deepEqual(result, { ok: false, reason: 'invalid_outcome' });
+  });
+
+  it('reports hubspot_not_configured only once the shape is valid', async () => {
+    const result = await appendCallOutcome({ callSid: 'CA123', outcome: 'meeting' });
+    assert.deepEqual(result, { ok: false, reason: 'hubspot_not_configured' });
   });
 });

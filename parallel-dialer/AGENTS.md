@@ -60,6 +60,63 @@ monorepo and is not yours to create.
    silently splits the batch registry and legs go missing. Raising this requires
    shared state first, not a config edit.
 
+## Dialing modes
+
+`screening: false` on a session is power-dial mode: the agent is bridged on the
+`in-progress` status callback and **no AMD verdict is ever acted on**. The
+classifier still runs and still records — that is deliberate, and the audit
+rows it produces are how the thresholds get tuned. Do not "fix" the classifier
+call in power-dial mode by making it hang up; a wrong verdict there would drop
+a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
+on the winner claim: Twilio re-delivers status callbacks.
+
+## Frontend tabs and where their data lives
+
+The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
+Lists, Reports. Contacts, Lists and Session History are **server-side now**
+(`src/backend/workspaceStore.js`) — three whole-file JSON documents under
+`WORKSPACE_DATA_DIR` (default `./data/workspace`), loaded on boot and
+rewritten atomically on every mutation, behind `GET/POST /api/workspace/*`
+(`src/backend/routes/workspace.js`). This closed the gap this file used to
+describe ("client-side state in `localStorage`, doesn't survive a restart"):
+`App.jsx` now fetches `/api/workspace/state` on mount and POSTs/DELETEs
+through the same router instead of calling `localStorage` directly. No
+database — three JSON files were enough for pilot-scale data, matching how
+`AMD_AUDIT_PATH` and `HUBSPOT_DEAD_LETTER_PATH` already do this.
+
+An agent's own logged outcome (`Meeting booked` / `Follow up` / `Not
+interested`, from the "Call notes" card) **does now reach HubSpot** —
+`hubspotService.js#appendCallOutcome` appends a line to the same Call
+engagement `logCallActivity` already created for that leg's `callSid`
+(found via `findCallByExternalId`, not a second engagement), queued through
+`CallActivityQueue` the same way the AMD-disposition write is, with its own
+dead letter (`HUBSPOT_OUTCOME_DEAD_LETTER_PATH`). It is looked up by the
+*outbound leg's* Twilio Call SID — not `call.parameters.CallSid`, which is
+the inbound `<Dial><Client>` leg to the browser and a different call
+entirely from the backend's point of view. `DialerDevice.jsx` captures the
+right one (`connectedCallSidRef`) off the same `leg:classified` SSE event
+`preConnectTranscriptRef` already reads, for the same best-effort-under-
+parallel-dial reason. If that ref is empty when the agent logs an outcome,
+the write is skipped with a visible warning rather than silently doing
+nothing — say so the same way if you touch this path and hit a case where
+the SID isn't available yet.
+
+Still genuinely unimplemented: real identity/auth beyond the one shared
+`DIALER_API_KEY`, and routing across more than one agent. Those are still
+new backend surface if asked for — say so rather than quietly wiring
+something up.
+
+**The Campaigns tab's "Call notes" card has a transcript section that is not
+a live transcript.** It shows `preConnectTranscriptRef` — whatever Deepgram
+heard during AMD classification, snapshotted onto the call the moment it
+connects. The Deepgram socket is closed the instant a verdict is reached
+(invariant 6 above), before the human conversation even starts, so nothing
+from the actual call is ever captured. The empty-state copy in
+`DialerDevice.jsx` says this outright — keep it that way if you touch that
+card. Wiring real in-call transcription means keeping a media stream open
+past the bridge (or forking the `<Dial>` leg's audio too), which is new
+backend work, not a frontend fix.
+
 ## Changing AMD behaviour
 
 `amdConfigFingerprint()` in `src/backend/classificationAudit.js` hashes the live
@@ -74,7 +131,7 @@ incomparable calls.
 ```bash
 cd parallel-dialer
 npm install
-npm test            # 64 unit tests, no network
+npm test            # 90 unit tests, no network
 npm run build       # server + web
 npm run dev:all     # API on :3000, workstation on :5173
 node scripts/score-amd.mjs   # AMD verdicts, latency percentiles, confusion matrix
