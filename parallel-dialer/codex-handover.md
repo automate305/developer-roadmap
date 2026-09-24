@@ -13,8 +13,15 @@ is in the code comments. Read before you change.
 ## Where the code is
 
 - **Repo:** `automate305/developer-roadmap`
-- **Branch:** `claude/parallel-dialer-webrtc-m6fcwa` (PR #4, draft — keep working on this branch)
+- **Branches:** a stack of draft PRs, each based on the one below it —
+  #4 `claude/parallel-dialer-webrtc-m6fcwa` (core dialer) →
+  #5 `…-hubspot-retries` (durable CRM logging) →
+  #6 `…-railway-deploy` →
+  #7 `…-amd-audit` (classification audit + scorer).
+  **Work on the tip unless a change genuinely belongs lower down**, and cascade
+  merges downward if you do change a lower branch.
 - **Project root:** `parallel-dialer/` — self-contained.
+- **Agent rules:** `parallel-dialer/AGENTS.md` is loaded automatically. Read it.
 
 The repository root is unrelated roadmap.sh content with its own `package.json`.
 **Do not touch anything outside `parallel-dialer/`.**
@@ -27,10 +34,13 @@ parallel-dialer/
   src/backend/dialerEngine.js       parallel batch executor, winner race, sessions
   src/backend/streamHandler.js      Twilio→Deepgram relay + AMD state machine
   src/backend/hubspotService.js     v3 HMAC, lead queue, call activity logging
+  src/backend/callActivityQueue.js  durable retry + dead-letter for CRM writes
+  src/backend/classificationAudit.js  append-only AMD decision log
   src/backend/twilioClient.js       REST client, hangups, TwiML redirects, tokens
   src/backend/routes/{twiml,api,webhooks}.js
   src/frontend/DialerDevice.jsx     WebRTC agent workstation
-  test/*.test.js                    31 node:test cases
+  scripts/score-amd.mjs             AMD scorer: latency, confusion matrix
+  test/*.test.js                    64 node:test cases
 ```
 
 ## How it works, in one paragraph
@@ -47,9 +57,10 @@ three timers. The first HUMAN wins the batch and is redirected to
 
 ## Already proven — do not redo
 
-- `npm test` → 31 passing (classifier, AMD timers and transitions, batch race,
-  abandoned-call path, HMAC validation, queue throttling). No network needed.
-- `npm run build:web` → clean Vite build.
+- `npm test` → 64 passing (classifier, AMD timers and transitions, batch race,
+  abandoned-call path, HMAC validation, queue throttling, CRM retry/dead-letter,
+  audit fingerprinting). No network needed.
+- `npm run build` → clean Vite build.
 - Server boots; `/api/health` responds; `/twiml/outbound` renders
   `<Connect><Stream>` with the leg parameters attached; an unsigned HubSpot
   webhook is rejected 401.
@@ -101,12 +112,17 @@ These cost real debugging time to find. Do not regress them.
    ("Hi, you've reached Dave's HVAC"). Reversing the order breaks the most
    common real-world case. A greeting only counts as human at ≤7 words.
 
-6. **The Vercel check on PR #4 is red and it is not the code's fault.**
-   The `a305-sep-web` Vercel project points its Root Directory at `apps/sep`,
-   which does not exist in this repo on any branch. The build dies at directory
-   resolution before reading a file. It fails identically on `master`. This needs
-   a Vercel dashboard change by the repo owner. **Do not attempt a code fix, and
-   do not create an `apps/sep` directory to satisfy it.**
+6. **The Vercel check belongs to a different app. Leave it alone.**
+   The `a305-sep-web` project builds `apps/sep`, which is unrelated to the
+   dialer and arrived on `master` separately. It was red on these branches only
+   while they predated that directory; merging `master` down the stack fixed it
+   and all four checks are green. If it goes red again, read the build log
+   before assuming it is yours — a failure in `apps/sep` is not a dialer
+   failure. **Never create an `apps/sep` directory to satisfy a build setting.**
+
+7. **The audio path does not transcode.** See `AGENTS.md` invariant 6. Adding
+   resampling or buffering to the frame relay puts latency straight into the
+   AMD decision the whole design exists to minimise.
 
 ---
 
@@ -114,29 +130,23 @@ These cost real debugging time to find. Do not regress them.
 
 Confirmed by reading the code, in rough priority order.
 
-1. **CRM activity misattributes the agent under multi-agent use.**
-   `server.js:156` and `:193` pass `config.dialer.agentIdentity` — a global — to
-   `logCallActivity`. Every call gets logged against the default agent regardless
-   of which session's agent actually took it. Thread the leg's own session
-   `agentIdentity` through instead.
+> Two gaps listed here originally are now **closed in PR #5**, with tests:
+> agent misattribution on CRM writes (the leg's own `agentIdentity` is threaded
+> through), and the unbounded `LeadQueue.seen` set (now a TTL-pruned, capped
+> `Map`). Do not re-fix them.
 
-2. **`LeadQueue.seen` grows without bound.**
-   `hubspotService.js`. The de-dupe `Set` is only emptied by `clear()`, so a
-   long-running process accumulates one entry per lead forever. Needs a TTL or a
-   bounded structure.
-
-3. **All state is in memory.** Sessions, batches and legs live in `Map`s on one
+1. **All state is in memory.** Sessions, batches and legs live in `Map`s on one
    process. A restart drops live calls, and it cannot scale past one instance.
    Fine for a pilot; needs Redis or similar before real load.
 
-4. **Auth is a shared secret.** `x-dialer-key`, and the SSE endpoint takes it in
+2. **Auth is a shared secret.** `x-dialer-key`, and the SSE endpoint takes it in
    the query string because `EventSource` cannot send headers. Replace with real
    identity before this is internet-facing.
 
-5. **No rate limiting** on `POST /api/sessions`. A bad caller can open unbounded
+3. **No rate limiting** on `POST /api/sessions`. A bad caller can open unbounded
    concurrent calls, which is a spend risk as much as a load one.
 
-6. **Single-agent assumption.** One `DIALER_AGENT_IDENTITY` per process. Routing
+4. **Single-agent assumption.** One `DIALER_AGENT_IDENTITY` per process. Routing
    a batch to whichever agent is free is not implemented.
 
 ---
@@ -161,9 +171,10 @@ TwiML App whose Voice Request URL points at
 `POST {PUBLIC_BASE_URL}/twiml/agent-outbound`.
 
 ```bash
-npm test          # 31 unit tests, no network
+npm test          # 64 unit tests, no network
 npm run dev:all   # API on :3000, workstation on :5173
-npm run build:web
+npm run build
+npm run score:amd # AMD verdicts, latency percentiles, confusion matrix
 ```
 
 Start a session by hand:
@@ -192,8 +203,7 @@ Watch `/api/events` (SSE) or the JSON logs to follow the batch. Every leg logs
   hearing it.
 - A HubSpot Call engagement appears on the right contact with the right
   duration and disposition.
-- Gaps 1 and 2 above fixed with tests.
-- `npm test` and `npm run build:web` still clean. PR #4 updated.
+- `npm test` and `npm run build` still clean, and the PR you worked on updated.
 
 ## Rules
 
