@@ -74,12 +74,12 @@ three timers. The first HUMAN wins the batch and is redirected to
 
 ## The new gap — Contacts / Lists / Reports / outcomes have no backend
 
-**Items 1 and 2 below are closed, in PR #10.** Contacts, Lists and Session
+**Items 1, 2 and 3 below are closed.** Contacts, Lists and Session
 History persist server-side (`src/backend/workspaceStore.js`, behind
 `/api/workspace/*`), and an agent's logged outcome now reaches HubSpot
 (`hubspotService.js#appendCallOutcome`). `AGENTS.md`'s "Frontend tabs and
 where their data lives" section describes the shipped shape; read that
-first. Do not re-do either — item 3 is still open.
+first. Do not re-do any of these.
 
 One deliberate deviation from this brief: **plain JSON files, not
 `better-sqlite3`**, as suggested below. No SQLite (or any DB) dependency
@@ -91,21 +91,24 @@ cleanly, hence three files rather than one log). If a real service ends up
 warranted at higher volume, that's still Cam's infrastructure call, not a
 reason to revisit this now.
 
-**Still open:**
+**Item 3, resolved:** `App.handleStartCampaign` now passes each list's
+contact records to `DialerDevice` via `loadRequest.contacts`; `startSession`
+attaches `name`/`company` (joined from `firstName`/`lastName`/`company`) to
+any lead whose phone matches a known contact, and a freeform-pasted number
+with no match still just dials as a bare string. `dialerEngine.js` threads
+these through `leg.lead` to every SSE event, and `DialerDevice` uses them to
+screen-pop the company/name on a connected call instead of just the number.
 
-3. **Thread `contactId`/`name`/`company` through "Start campaign".**
-   `App.handleStartCampaign` currently sends bare phone strings to the
-   Campaigns dial list, discarding everything else on the contact. The
-   session API already accepts lead objects (`normalizeLead` in
-   `dialerEngine.js` takes `{phone, contactId, name, company}`) — nothing
-   stops sending the full object today except that Contacts doesn't carry
-   a HubSpot `contactId` at all (the CSV columns are company/name/etc., not
-   a HubSpot object ID). Decide: does an imported CSV need a `contactId`
-   column, or does the backend resolve one by phone at call time the way
-   `logCallActivity` already falls back to `findContactIdByPhone`? The
-   fallback already exists — you may not need new code here, just to
-   verify it's actually adequate once outcomes need a `contactId` to write
-   to.
+Deliberately **not** `contactId`: a workspace contact's `id` is this app's
+own `crypto.randomUUID()`, not a HubSpot object id. `logCallActivity` does
+`args.contactId ?? findContactIdByPhone(phone)` — a truthy-but-wrong id
+would skip that working phone lookup and hand HubSpot a garbage
+association. So `contactId` is left unset on every lead built this way, and
+the existing phone-based resolution in `logCallActivity` keeps doing what it
+already did. If a real HubSpot `contactId` ever needs to ride along (e.g.
+once CSV imports gain a HubSpot-id column, or leads arrive from the
+`hubspot-lead` webhook), thread it as its own field and keep it separate
+from this workspace's local id — never conflate the two.
 
 ---
 
@@ -281,9 +284,9 @@ Watch `/api/events` (SSE) or the JSON logs to follow the batch. Every leg logs
   write already was).
 - ✅ `AGENTS.md` updated to match.
 - ✅ `npm test` (90 passing) and `npm run build` clean.
-- Still open: item 3 above (threading `contactId`/`name`/`company` through
-  "Start campaign") — not part of this gap's original done-criteria, but
-  documented there as the next natural piece.
+- ✅ Item 3 above (threading `name`/`company` through "Start campaign" for a
+  connected-call screen-pop) — not part of this gap's original
+  done-criteria, but it was documented there as the next natural piece.
 
 **Gate 1** (only once Cam has supplied credentials and a Railway deployment
 exists):

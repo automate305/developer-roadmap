@@ -26,8 +26,37 @@ const TABS = [
 
 const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
 
+const THEME_STORAGE_KEY = 'a305-theme';
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('campaigns');
+
+  // Dark is the shipped default (index.html's inline script already applied
+  // a stored "light" preference before this ever runs, to avoid a flash of
+  // the wrong theme) — this just keeps state and the DOM attribute in sync
+  // from here on. Per-viewer convenience, not app data, so plain
+  // localStorage is the right place for it, guarded since a private window
+  // or blocked site data can make it throw.
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem(THEME_STORAGE_KEY) === 'light' ? 'light' : 'dark';
+    } catch {
+      return 'dark';
+    }
+  });
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      /* private window or blocked storage — theme still applies for this load */
+    }
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const [lists, setLists] = useState([]);
   const [contacts, setContacts] = useState([]);
@@ -124,11 +153,12 @@ export default function App() {
 
   const handleStartCampaign = useCallback(
     (list) => {
-      const numbers = contacts
-        .filter((c) => c.listId === list.id && c.phone1)
-        .map((c) => c.phone1)
-        .join('\n');
-      setLoadRequest({ text: numbers, listName: list.name, token: Date.now() });
+      const listContacts = contacts.filter((c) => c.listId === list.id && c.phone1);
+      const numbers = listContacts.map((c) => c.phone1).join('\n');
+      // The full records ride along too, keyed by phone1 in DialerDevice, so
+      // a connected call can screen-pop the company/name instead of just the
+      // number — see DialerDevice's `phoneToContact`.
+      setLoadRequest({ text: numbers, listName: list.name, contacts: listContacts, token: Date.now() });
       setActiveTab('campaigns');
     },
     [contacts],
@@ -175,7 +205,12 @@ export default function App() {
             <h1 className="dialer__title">A305 Dialer</h1>
             <p className="dialer__subtitle">Agent workstation · {identity}</p>
           </div>
-          <span className="pill pill--muted">{dialableCount} dialable contacts</span>
+          <div className="row">
+            <span className="pill pill--muted">{dialableCount} dialable contacts</span>
+            <button type="button" className="btn btn--ghost theme-toggle" onClick={toggleTheme}>
+              {theme === 'dark' ? 'Light theme' : 'Dark theme'}
+            </button>
+          </div>
         </header>
 
         <nav className="tabs" role="tablist" aria-label="Workstation sections">
@@ -201,6 +236,7 @@ export default function App() {
             identity={identity}
             apiKey={apiKey}
             loadRequest={loadRequest}
+            contacts={contacts}
             onLegEnded={handleLegEnded}
             onSessionEnded={handleSessionEnded}
           />
