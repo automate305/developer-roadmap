@@ -30,6 +30,34 @@ const STATUS_TONE = {
 
 const MAX_LOG_ENTRIES = 200;
 
+const LEG_LIFECYCLE_EVENTS = new Set(['leg:dialing', 'leg:streaming', 'leg:classified', 'leg:connected', 'leg:ended']);
+
+/** One line rack tile's label/tone for a leg snapshot off the SSE feed.
+ * Mirrors dialerEngine.js's LegState/Disposition exactly — see that file if
+ * a new value ever gets added on either enum. */
+function legPhase(leg) {
+  if (leg.state === 'ENDED') {
+    switch (leg.disposition) {
+      case 'HUMAN': return { label: 'Ended', tone: 'neutral' };
+      case 'MACHINE': return { label: 'Voicemail', tone: 'pending' };
+      case 'NO_ANSWER': return { label: 'No answer', tone: 'neutral' };
+      case 'BUSY': return { label: 'Busy', tone: 'neutral' };
+      case 'FAILED': return { label: 'Failed', tone: 'bad' };
+      case 'ABANDONED': return { label: 'Lost race', tone: 'neutral' };
+      case 'CANCELED': return { label: 'Canceled', tone: 'neutral' };
+      default: return { label: 'Ended', tone: 'neutral' };
+    }
+  }
+  switch (leg.state) {
+    case 'QUEUED': return { label: 'Queued', tone: 'neutral' };
+    case 'RINGING': return { label: 'Ringing', tone: 'pending' };
+    case 'ANSWERED': return { label: 'Answered', tone: 'pending' };
+    case 'CLASSIFYING': return { label: 'Listening…', tone: 'accent' };
+    case 'CONNECTED': return { label: 'Connected', tone: 'live' };
+    default: return { label: leg.state ?? 'Unknown', tone: 'neutral' };
+  }
+}
+
 /** Outcomes an agent can log by hand once a call ends. The dialer's own AMD
  * verdicts (HUMAN/MACHINE/NO_ANSWER/…) come from the engine, not this — this
  * is what the agent decided about a conversation that actually happened. */
@@ -95,6 +123,12 @@ export default function DialerDevice({
   const [starting, setStarting] = useState(false);
   const [meetingsBooked, setMeetingsBooked] = useState(0);
   const sessionMetaRef = useRef(null); // { startedAt, mode, listName, leadsTotal }
+  // Every leg in the current batch, keyed by legId — replaced wholesale on
+  // `batch:started`, upserted per leg on every lifecycle event after that.
+  // This is what renders the line rack: real state off the same SSE feed
+  // the Activity log already reads, not a mock. One leg in power-dial mode
+  // (batchSize forced to 1), up to ten in parallel mode.
+  const [batchLegs, setBatchLegs] = useState([]);
 
   const deviceRef = useRef(null);
   const callRef = useRef(null);
@@ -467,6 +501,7 @@ export default function DialerDevice({
       sessionMetaRef.current = null;
       setSession(null);
       setMeetingsBooked(0);
+      setBatchLegs([]);
     },
     [mode, meetingsBooked, onSessionEnded, session],
   );
@@ -514,6 +549,7 @@ export default function DialerDevice({
 
       sessionMetaRef.current = { startedAt: Date.now(), listName: activeListName, leadsTotal: leads.length };
       setMeetingsBooked(0);
+      setBatchLegs([]);
       setSession(body);
       pushEvent(
         'success',
@@ -587,6 +623,21 @@ export default function DialerDevice({
           }
           if (payload.sessionId && name === 'session:exhausted') {
             finishSession(payload);
+          }
+          // The line rack: `batch:started` carries every leg for the new
+          // batch (replacing whatever the last batch left on screen), and
+          // every leg lifecycle event after that upserts just its own leg —
+          // real state, not derived from the Activity log's text.
+          if (name === 'batch:started') {
+            setBatchLegs(payload.legs ?? []);
+          } else if (LEG_LIFECYCLE_EVENTS.has(name) && payload.legId) {
+            setBatchLegs((prev) => {
+              const idx = prev.findIndex((leg) => leg.legId === payload.legId);
+              if (idx === -1) return [...prev, payload];
+              const next = [...prev];
+              next[idx] = { ...next[idx], ...payload };
+              return next;
+            });
           }
         } catch {
           /* malformed frame — ignore */
@@ -677,6 +728,34 @@ export default function DialerDevice({
               </dd>
             </div>
           </dl>
+        </section>
+      )}
+
+      {/* The line rack — one tile per leg in the current batch, real state
+          off the same SSE feed the Activity log reads. One tile in
+          power-dial mode (batchSize forced to 1), up to ten in parallel. */}
+      {batchLegs.length > 0 && (
+        <section className="panel panel--rack">
+          <div className="panel__head">
+            <h2 className="panel__title">Lines</h2>
+            <span className="pill pill--muted">{batchLegs.length} in this batch</span>
+          </div>
+          <div className="line-rack">
+            {batchLegs.map((leg) => {
+              const phase = legPhase(leg);
+              const label = leg.company || leg.name || leg.phone;
+              return (
+                <div key={leg.legId} className={`line-tile ${phase.tone === 'live' ? 'line-tile--connected' : ''}`}>
+                  <p className="line-tile__label">{label}</p>
+                  {label !== leg.phone && <p className="mono line-tile__phone">{leg.phone}</p>}
+                  <span className={`badge badge--${phase.tone}`}>
+                    <span className="badge__dot" aria-hidden="true" />
+                    {phase.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </section>
       )}
 

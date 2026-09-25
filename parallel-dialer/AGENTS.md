@@ -115,6 +115,17 @@ authoritative (skipping its own working `findContactIdByPhone` fallback) —
 sending our local id through would silently break the CRM association. See
 codex-handover.md's former item 3 for the full reasoning if you touch this.
 
+**The line rack** (the "Lines" panel, `batchLegs` state in `DialerDevice.jsx`)
+is real per-leg state off the same `/api/events` SSE feed the Activity log
+reads — not a mock. `batch:started` carries every leg in the new batch
+(`snapshotBatch`'s `legs` array) and replaces `batchLegs` wholesale;
+`leg:dialing`/`leg:streaming`/`leg:classified`/`leg:connected`/`leg:ended`
+each carry one leg and upsert it by `legId`. `legPhase()` maps
+`dialerEngine.js`'s `LegState`/`Disposition` enums to a tile label/tone —
+if either enum changes, update `legPhase()` to match, it's a hand-written
+mirror, not derived. One tile in power-dial mode (`batchSize` forced to 1),
+up to ten in parallel mode.
+
 Still genuinely unimplemented: real identity/auth beyond the one shared
 `DIALER_API_KEY`, and routing across more than one agent. Those are still
 new backend surface if asked for — say so rather than quietly wiring

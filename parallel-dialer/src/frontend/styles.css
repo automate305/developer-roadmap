@@ -220,7 +220,31 @@ textarea:focus-visible {
 .badge--live .badge__dot { background: var(--live); box-shadow: 0 0 8px var(--live-glow); animation: pulse 1.2s ease-in-out infinite; }
 .badge--bad { color: var(--bad-text); background: var(--bad-bg); border-color: var(--bad-line); }
 .badge--bad .badge__dot { background: var(--bad); }
+/* neutral is the base .badge styling with nothing to override — named so
+   every line-rack tile can pick a tone uniformly instead of special-casing
+   "no modifier". accent is the one tone with no dialer-state precedent:
+   CLASSIFYING is the engine actively deciding, closer to "the system is
+   doing something" than to any of the other four semantic colors, so it
+   gets the brand purple instead of overloading warn/live for it. */
+.badge--neutral { color: var(--muted); background: var(--chip-bg); border-color: var(--line); }
+.badge--accent { color: var(--action-text); background: var(--action-bg); border-color: var(--action-line); }
+.badge--accent .badge__dot { background: var(--purple); box-shadow: 0 0 8px #9b5cf699; animation: pulse 1.2s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: 0.25; } }
+
+/* ── line rack ──────────────────────────────────────────────────────────── */
+.line-rack { display: flex; flex-wrap: wrap; gap: 10px; }
+.line-tile {
+  flex: 1 1 152px;
+  min-width: 152px;
+  padding: 11px 13px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--line);
+  background: var(--field-surface);
+  display: flex; flex-direction: column; gap: 7px;
+}
+.line-tile--connected { border-color: var(--purple); box-shadow: 0 0 0 1px var(--purple) inset, 0 10px 22px -10px #9b5cf680; }
+.line-tile__label { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: -0.2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.line-tile__phone { margin: -4px 0 0; font-size: 11px; color: var(--faint); }
 
 /* ── panels ─────────────────────────────────────────────────────────────── */
 .panel {
