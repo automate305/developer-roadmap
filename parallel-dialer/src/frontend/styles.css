@@ -1,19 +1,23 @@
 /**
- * Agent workstation theme — charcoal shell, Automate305 purple accents.
+ * Agent workstation theme — charcoal shell (default), Automate305 purple
+ * accents, with a light theme available via `<html data-theme="light">`.
  *
- * The five brand hues (purple/green/amber/red/blue) are unchanged from the
- * light theme. Everything else — the neutrals, and every *-text/*-bg/*-line
- * shade derived from those hues — is recomputed for a charcoal shell: a
- * pastel tuned to sit on white (e.g. the light theme's --warn-text #92620a)
- * fails contrast on near-black. Text is near-white throughout, not the usual
- * dimmed dark-mode grey — the brief this theme was built from asked for
- * "all white lettering" specifically. The purple glow under every card
- * carries over unchanged in spirit from the light theme (there it was a
- * halo under a white card; here it's the same halo, brighter, doing more of
- * the work since the backdrop no longer supplies its own contrast).
+ * The five brand hues (purple/green/amber/red/blue) are the same in both
+ * themes. Everything else — the neutrals, and every *-text/*-bg/*-line
+ * shade derived from those hues — is recomputed per theme: a pastel tuned
+ * to sit on white (e.g. the light theme's --warn-text #92620a) fails
+ * contrast on near-black, and vice versa. Dark theme text is near-white
+ * throughout, not the usual dimmed dark-mode grey — the brief this theme
+ * was built from asked for "all white lettering" specifically. The purple
+ * glow under every card is the same halo in both themes, just brighter in
+ * the dark one, where the backdrop no longer supplies its own contrast.
  *
- * Every colour in this file resolves to a token below. Re-skinning is a
- * matter of replacing this block and nothing else.
+ * `App.jsx` sets `data-theme` on `<html>` from a `localStorage`-persisted
+ * toggle. The bare `:root` block below is the dark theme and doubles as the
+ * fallback for a first paint before that effect runs; `:root[data-theme=
+ * "light"]` overrides every token that differs. Re-skinning either theme is
+ * a matter of replacing its block and nothing else — keep the two the same
+ * shape (one override per token) so neither can leak the other's color.
  */
 
 :root {
@@ -123,6 +127,103 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+/* ── Light theme override — every token the dark :root above sets, so
+   toggling can never leave a dark shade mixed into the light shell. ────── */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --purple: #9b5cf6;
+  --purple-soft: #9b5cf61f;
+  --green: #51d99a;
+  --amber: #f4bd5f;
+  --red: #ff7e70;
+  --blue: #65a9ff;
+
+  --bg: #f6f3fb;
+  --panel: #ffffff;
+  --panel-2: #f1ecfa;
+  --text: #1e1730;
+  --muted: #6b6478;
+  --line: #e6dff5;
+
+  --accent: var(--purple);
+  --good: var(--green);
+  --warn: var(--amber);
+  --bad: var(--red);
+  --live: var(--blue);
+
+  --panel-surface: linear-gradient(180deg, #ffffff, #fdfbff);
+  --panel-border: #e7dcfa;
+  --panel-shadow: 0 28px 54px -26px #9b5cf65c, 0 6px 16px -8px #1e173014, inset 0 1px #ffffff;
+  --panel-sheen: linear-gradient(180deg, #ffffffb0, #ffffff00 45%);
+  --shell-glow: #9b5cf626;
+  --grid-line: #1e17300a;
+  --row-line: #1e17300f;
+  --chip-bg: #9b5cf60f;
+
+  --action-gradient: linear-gradient(135deg, #8d43e7, #a845f8);
+  --action-shadow: 0 14px 30px -10px #9b5cf673;
+  --on-action: #fff;
+  --action-text: #6d28d9;
+  --action-bg: #9b5cf614;
+  --action-line: #9b5cf64d;
+
+  --field-surface: linear-gradient(135deg, #f4effc, #ebe1f9);
+  --field-border: #d9caf2;
+  --field-text: #1e1730;
+  --field-placeholder: #8a7f9c;
+  --field-shadow: inset 0 1px #ffffffb0, inset 0 -1px #1e17300a;
+  --field-focus-line: #9b5cf6;
+  --field-focus-shadow: inset 0 1px #ffffffb0, 0 0 0 3px #9b5cf640, 0 8px 18px -6px #9b5cf654;
+  --focus-ring: #7c3aed99;
+
+  --good-text: #15803d;
+  --good-bg: #51d99a14;
+  --good-line: #51d99a40;
+  --good-glow: #51d99a99;
+  --good-icon: #1c9d5c;
+
+  --warn-text: #92620a;
+  --warn-bg: #f4bd5f1a;
+  --warn-line: #f4bd5f40;
+  --warn-btn-bg: #f4bd5f14;
+  --warn-btn-line: #f4bd5f59;
+  --warn-panel-line: #f4bd5f59;
+
+  --live-text: #1d4ed8;
+  --live-bg: #65a9ff16;
+  --live-line: #65a9ff40;
+  --live-glow: #65a9ff99;
+  --live-panel-line: #65a9ff59;
+
+  --bad-text: #c0281a;
+  --bad-bg: #ff7e7014;
+  --bad-line: #ff7e7040;
+  --bad-btn-bg: #ff7e7014;
+  --bad-btn-line: #ff7e7059;
+  --alert-text: #a3241a;
+  --alert-bg: #ff7e700d;
+  --alert-line: #ff7e7040;
+
+  --kicker: #8a7f9c;
+  --label: #756a8a;
+  --dt: #8a7f9c;
+  --meter-label: #8a7f9c;
+  --time: #a196b3;
+  --faint: #a196b3;
+  --log-text: #2e2640;
+  --log-muted: #6b6478;
+  --stat: #4b3f66;
+
+  --meter-track: #1e17300f;
+  --meter-fill: linear-gradient(90deg, #7133c4, #a768f5);
+
+  --radius: 14px;
+  --radius-sm: 8px;
+  --sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
 * { box-sizing: border-box; }
 
 body {
@@ -192,6 +293,8 @@ textarea:focus-visible {
   color: var(--kicker);
   font-size: 10px; font-weight: 850; letter-spacing: 1.5px; text-transform: uppercase;
 }
+
+.theme-toggle { border: 1px solid var(--line); border-radius: 99px; padding: 0 13px; }
 
 /* Modelled on the OUTBOX .live-indicator pill. */
 .badge {

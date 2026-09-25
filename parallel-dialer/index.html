@@ -7,6 +7,15 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Runs before the bundle so a stored "light" preference doesn't flash
+         the default dark theme for a frame. Kept to one localStorage read,
+         guarded — a blocked/private-mode read just leaves the default. -->
+    <script>
+      try {
+        var theme = localStorage.getItem('a305-theme');
+        if (theme === 'light') document.documentElement.dataset.theme = 'light';
+      } catch {}
+    </script>
     <script type="module" src="/src/frontend/main.jsx"></script>
   </body>
 </html>
