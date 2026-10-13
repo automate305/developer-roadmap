@@ -28,12 +28,13 @@ Do NOT use the `petviza` Vercel project (stale) or the `a305-sep-web` project (u
 <script src="petviza-lang-toggle.js"></script>
 ```
 
-3. The coral accent variable `--accent` in the `:root` block changed from `2 76% 76%` to `2 70% 66%` (a bit darker). It is a single HSL token (used as `hsl(var(--accent))`), so every coral element follows it.
+3. The mobile menu now has a second toggle (`<button class="lang-toggle">ES</button>`, no id, above the mobile "Begin your journey" button). The desktop button also carries `class="lang-toggle"` now. Bind the script to `.lang-toggle`, not the id.
+
+4. The coral accent variable `--accent` in the `:root` block changed from `2 76% 76%` to `2 70% 66%` (a bit darker). It is a single HSL token (used as `hsl(var(--accent))`), so every coral element follows it.
 
 ## 3. What is NOT done
 
 - **`petviza-lang-toggle.js` does not exist.** The script tag 404s and the `ES` button does nothing. This is the main job.
-- **The mobile menu has no language toggle.** The mobile nav (the second "Begin your journey" button, class `mobile-cta`) needs one too.
 - Spanish copy for the site has never been written.
 
 ## 4. Your tasks
@@ -52,7 +53,7 @@ Behavior:
 
 ### 4.2 Mobile toggle
 
-Add a language toggle to the mobile menu. The `id` `lang-toggle` is already used by the desktop button, so do not duplicate the id. Use a class (for example `.lang-toggle`) so the JS binds to every toggle on the page, and keep both buttons' labels in sync. Match the mobile menu's existing styling, keep a 48 px minimum tap target, and keep the desktop button's current look.
+Already in the HTML (see Section 2, item 3). Make sure the script binds every `.lang-toggle`, keeps both labels in sync, and that the mobile menu closes or stays sensibly after a switch. Both buttons say `ES` while the page is English and `EN` while it is Spanish. Clicking translates the entire site.
 
 ### 4.3 Coral check
 
