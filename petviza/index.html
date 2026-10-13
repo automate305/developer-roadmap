@@ -28,7 +28,7 @@
       --secondary-foreground: 215 57% 15%;
       --muted: 45 18% 91%;
       --muted-foreground: 215 21% 42%;
-      --accent: 13 68% 66%;
+      --accent: 13 68% 58%;
       --accent-foreground: 215 57% 15%;
       --destructive: 4 68% 47%;
       --destructive-foreground: 47 38% 96%;
@@ -485,6 +485,7 @@
         <button class="nav-link" onclick="smoothScroll('process')">How it works</button>
         <button class="nav-link" onclick="smoothScroll('expertise')">Our expertise</button>
         <button class="nav-link" onclick="smoothScroll('faq')">FAQ</button>
+        <button id="lang-toggle" style="background:none;border:1px solid #1a2744;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:0.85rem;font-weight:600;letter-spacing:0.05em;color:#1a2744;">ES</button>
         <button class="btn-primary pv-button" onclick="openModal()">Begin your journey <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
       </nav>
       <button class="mobile-toggle" onclick="toggleMobile()" aria-label="Toggle menu" id="mobileBtn">
@@ -845,5 +846,6 @@
       if (e.target === this) closeModal();
     });
   </script>
+  <script src="petviza-lang-toggle.js"></script>
 </body>
 </html>
