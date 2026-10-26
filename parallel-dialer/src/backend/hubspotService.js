@@ -17,6 +17,7 @@ import { EventEmitter } from 'node:events';
 import { Client } from '@hubspot/api-client';
 
 import { config } from '../config/env.js';
+import { getCallerId } from './voiceProvider.js';
 import { logger } from '../utils/logger.js';
 
 const log = logger.child({ module: 'hubspotService' });
@@ -413,7 +414,7 @@ export async function logCallActivity(args) {
 
   const {
     phone,
-    fromNumber = config.twilio.callerId,
+    fromNumber = getCallerId(),
     durationSeconds = 0,
     disposition = 'FAILED',
     transcript = '',

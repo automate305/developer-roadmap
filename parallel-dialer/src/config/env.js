@@ -71,11 +71,16 @@ export function derivePublicBaseUrl() {
 
 const publicBaseUrl = derivePublicBaseUrl();
 
+/** @type {'twilio' | 'signalwire'} */
+const voiceProvider = str('VOICE_PROVIDER', 'twilio');
+
 export const config = Object.freeze({
   env: str('NODE_ENV', 'development'),
   isProduction: str('NODE_ENV', 'development') === 'production',
   port: int('PORT', 3000),
   logLevel: str('LOG_LEVEL', 'info'),
+
+  voiceProvider,
 
   publicBaseUrl,
   /** wss:// origin derived from the public base URL, for <Stream url="..."> */
@@ -93,6 +98,15 @@ export const config = Object.freeze({
     twimlAppSid: str('TWILIO_TWIML_APP_SID'),
     tokenTtlSeconds: Math.min(int('TWILIO_TOKEN_TTL_SECONDS', 3600), 86400),
     validateSignature: bool('TWILIO_VALIDATE_SIGNATURE', true),
+  },
+
+  signalwire: {
+    projectId: str('SIGNALWIRE_PROJECT_ID'),
+    apiToken: str('SIGNALWIRE_API_TOKEN'),
+    spaceUrl: str('SIGNALWIRE_SPACE_URL'),
+    callerId: str('SIGNALWIRE_CALLER_ID'),
+    tokenTtlSeconds: Math.min(int('SIGNALWIRE_TOKEN_TTL_SECONDS', 3600), 86400),
+    validateSignature: bool('SIGNALWIRE_VALIDATE_SIGNATURE', true),
   },
 
   deepgram: {
@@ -151,15 +165,25 @@ export const config = Object.freeze({
 });
 
 /**
- * Keys the process genuinely cannot run without. Integration-specific keys
- * (HubSpot, Deepgram) are checked lazily by their own services so the dialer
- * still boots in a degraded, testable mode when they are absent.
+ * Keys the process genuinely cannot run without. Which set is required
+ * depends on the active voice provider. Integration-specific keys (HubSpot,
+ * Deepgram) are checked lazily by their own services so the dialer still
+ * boots in a degraded, testable mode when they are absent.
  */
-const REQUIRED = [
-  ['TWILIO_ACCOUNT_SID', config.twilio.accountSid],
-  ['TWILIO_AUTH_TOKEN', config.twilio.authToken],
-  ['TWILIO_CALLER_ID', config.twilio.callerId],
-];
+const REQUIRED_BY_PROVIDER = {
+  twilio: [
+    ['TWILIO_ACCOUNT_SID', config.twilio.accountSid],
+    ['TWILIO_AUTH_TOKEN', config.twilio.authToken],
+    ['TWILIO_CALLER_ID', config.twilio.callerId],
+  ],
+  signalwire: [
+    ['SIGNALWIRE_PROJECT_ID', config.signalwire.projectId],
+    ['SIGNALWIRE_API_TOKEN', config.signalwire.apiToken],
+    ['SIGNALWIRE_SPACE_URL', config.signalwire.spaceUrl],
+    ['SIGNALWIRE_CALLER_ID', config.signalwire.callerId],
+  ],
+};
+const REQUIRED = REQUIRED_BY_PROVIDER[config.voiceProvider] ?? REQUIRED_BY_PROVIDER.twilio;
 
 /**
  * Validates required configuration.
@@ -169,6 +193,9 @@ export function validateConfig() {
   const missing = REQUIRED.filter(([, value]) => !value).map(([name]) => name);
   const warnings = [];
 
+  if (!['twilio', 'signalwire'].includes(config.voiceProvider)) {
+    warnings.push(`VOICE_PROVIDER="${config.voiceProvider}" is not recognized — expected "twilio" or "signalwire".`);
+  }
   if (!config.deepgram.apiKey) {
     warnings.push('DEEPGRAM_API_KEY is unset — AMD will fall back to timeout-only classification.');
   }
@@ -178,7 +205,7 @@ export function validateConfig() {
   if (!config.hubspot.clientSecret) {
     warnings.push('HUBSPOT_CLIENT_SECRET is unset — the lead webhook will reject every request.');
   }
-  if (!config.twilio.apiKeySid || !config.twilio.apiKeySecret || !config.twilio.twimlAppSid) {
+  if (config.voiceProvider === 'twilio' && (!config.twilio.apiKeySid || !config.twilio.apiKeySecret || !config.twilio.twimlAppSid)) {
     warnings.push('Twilio API key/secret or TwiML App SID missing — /api/token cannot mint WebRTC tokens.');
   }
   if (!config.publicBaseUrl.startsWith('https://') && config.isProduction) {

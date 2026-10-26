@@ -25,7 +25,7 @@ import { randomUUID } from 'node:crypto';
 
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import { getTwilioClient, hangupCall, redirectCall } from './twilioClient.js';
+import { getVoiceClient, hangupCall, redirectCall, getCallerId } from './voiceProvider.js';
 
 const log = logger.child({ module: 'dialerEngine' });
 
@@ -107,7 +107,7 @@ export class DialerEngine extends EventEmitter {
     super();
     this.hangupCall = deps.hangupCall ?? hangupCall;
     this.redirectCall = deps.redirectCall ?? redirectCall;
-    this.getClient = deps.getClient ?? getTwilioClient;
+    this.getClient = deps.getClient ?? getVoiceClient;
     this.setMaxListeners(0);
   }
 
@@ -277,7 +277,7 @@ export class DialerEngine extends EventEmitter {
     try {
       const call = await rest.calls.create({
         to: leg.lead.phone,
-        from: config.twilio.callerId,
+        from: getCallerId(),
         url: `${config.publicBaseUrl}/twiml/outbound?${params.toString()}`,
         method: 'POST',
         timeout: config.dialer.ringTimeoutSeconds,

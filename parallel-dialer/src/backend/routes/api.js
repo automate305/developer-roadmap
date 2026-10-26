@@ -7,7 +7,7 @@ import express from 'express';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { dialerEngine, normalizeLead } from '../dialerEngine.js';
-import { createVoiceAccessToken } from '../twilioClient.js';
+import { createVoiceAccessToken } from '../voiceProvider.js';
 
 const log = logger.child({ module: 'routes/api' });
 
