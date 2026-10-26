@@ -436,17 +436,19 @@ export class DialerEngine extends EventEmitter {
   }
 
   /**
-   * Bridge the winning leg onto the agent's WebRTC client and drop the rest.
+   * Bridge the winning leg onto the agent — via browser WebRTC (Twilio) or
+   * by ringing the agent's phone number (SignalWire, until browser SDK is wired).
    */
   async #connectToAgent(batch, leg) {
     const identity = batch.agentIdentity;
+    const dialInner = config.voiceProvider === 'signalwire' && config.dialer.agentPhoneNumber
+      ? `<Number>${escapeXml(config.dialer.agentPhoneNumber)}</Number>`
+      : `<Client>${escapeXml(identity)}</Client>`;
     const twiml =
       '<?xml version="1.0" encoding="UTF-8"?>' +
       '<Response>' +
-      // answerOnBridge keeps the lead hearing ringback (not silence) until the
-      // agent's browser actually picks up.
-      `<Dial answerOnBridge="true" timeLimit="14400" action="${config.publicBaseUrl}/twiml/bridge-status?legId=${leg.id}" method="POST">` +
-      `<Client>${escapeXml(identity)}</Client>` +
+      `<Dial answerOnBridge="true" timeLimit="14400" callerId="${escapeXml(getCallerId())}" action="${config.publicBaseUrl}/twiml/bridge-status?legId=${leg.id}" method="POST">` +
+      dialInner +
       '</Dial>' +
       '</Response>';
 

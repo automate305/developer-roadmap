@@ -34,21 +34,24 @@ function createTwilioDevice(token, opts) {
 }
 
 /**
- * Placeholder for SignalWire browser SDK integration.
- *
- * @signalwire/js uses a different constructor and event model:
- *   const client = await SignalWire({ token });
- *   const call = await client.voice.dial({ ... });
- *
- * This stub throws so the frontend fails loudly rather than silently
- * when someone flips VOICE_PROVIDER=signalwire before the SDK is wired.
+ * SignalWire phone-bridge stub — the browser doesn't handle audio; instead,
+ * answered calls are bridged to the agent's phone via <Number> in the backend.
+ * This no-op device satisfies the frontend lifecycle without crashing.
  */
 function createSignalWireDevice(_token, _opts) {
-  throw new Error(
-    'SignalWire browser SDK (@signalwire/js) is not yet integrated. ' +
-    'The backend REST/LaML/Media Stream path works — browser WebRTC is pending. ' +
-    'Set VOICE_PROVIDER=twilio to use the Twilio Voice SDK in the meantime.',
-  );
+  const handlers = new Map();
+  return {
+    _provider: 'signalwire',
+    _phoneBridge: true,
+    register() {
+      queueMicrotask(() => handlers.get('registered')?.());
+    },
+    destroy() {},
+    updateToken() {},
+    on(event, fn) { handlers.set(event, fn); return this; },
+    off(event) { handlers.delete(event); return this; },
+    emit(event, ...args) { handlers.get(event)?.(...args); },
+  };
 }
 
 export default createVoiceDevice;
