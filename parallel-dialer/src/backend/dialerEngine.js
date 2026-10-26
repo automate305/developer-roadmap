@@ -75,7 +75,10 @@ const E164 = /^\+[1-9]\d{6,14}$/;
  */
 export function normalizeLead(input) {
   const raw = typeof input === 'string' ? { phone: input } : { ...input };
-  const phone = String(raw.phone ?? raw.number ?? raw.to ?? '').trim();
+  let phone = String(raw.phone ?? raw.number ?? raw.to ?? '').trim();
+  // Auto-normalize bare 10-digit US numbers and 11-digit numbers starting with 1
+  if (/^\d{10}$/.test(phone)) phone = `+1${phone}`;
+  else if (/^1\d{10}$/.test(phone)) phone = `+${phone}`;
   if (!E164.test(phone)) {
     throw new Error(`Lead phone must be E.164 (e.g. +13055550123), got "${phone}"`);
   }
