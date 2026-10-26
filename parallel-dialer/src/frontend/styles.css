@@ -127,6 +127,26 @@
   --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+.operator-login {
+  width: min(360px, calc(100vw - 32px));
+  margin: auto;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  border: 1px solid var(--panel-border);
+  border-radius: 16px;
+  background: var(--panel-surface);
+  box-shadow: var(--panel-shadow);
+}
+.app--login { min-height: 100vh; align-items: center; }
+.operator-login h1 { margin: 0; color: var(--text); }
+.operator-login p { margin: 0; color: var(--muted); }
+.operator-login__eyebrow { color: var(--purple); font-size: 10px; font-weight: 800; letter-spacing: 1.5px; }
+.operator-login .field { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
+.operator-login .field input { width: 100%; }
+.operator-login .operator-login__error { color: var(--bad-text); }
+
 /* ── Light theme override — every token the dark :root above sets, so
    toggling can never leave a dark shade mixed into the light shell. ────── */
 :root[data-theme="light"] {

@@ -35,6 +35,7 @@ import { createApiRouter } from './backend/routes/api.js';
 import { createTwimlRouter } from './backend/routes/twiml.js';
 import { createWebhookRouter } from './backend/routes/webhooks.js';
 import { createWorkspaceRouter } from './backend/routes/workspace.js';
+import { createOperatorAuth } from './backend/operatorAuth.js';
 
 const log = logger.child({ module: 'server' });
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -83,8 +84,9 @@ export function createApp({
   );
 
   // ── Control plane + Twilio voice webhooks ────────────────────────────────
-  app.use('/api', createApiRouter({ engine }));
-  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue }));
+  const auth = createOperatorAuth();
+  app.use('/api', createApiRouter({ engine, auth }));
+  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, auth }));
   app.use('/twiml', createTwimlRouter({ engine }));
 
   // Convenience alias so infrastructure health checks need no /api prefix.

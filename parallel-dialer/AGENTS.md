@@ -126,10 +126,11 @@ if either enum changes, update `legPhase()` to match, it's a hand-written
 mirror, not derived. One tile in power-dial mode (`batchSize` forced to 1),
 up to ten in parallel mode.
 
-Still genuinely unimplemented: real identity/auth beyond the one shared
-`DIALER_API_KEY`, and routing across more than one agent. Those are still
-new backend surface if asked for — say so rather than quietly wiring
-something up.
+The dashboard now exchanges the server-only `DIALER_API_KEY` for a short-lived
+HttpOnly operator session (see `operatorAuth.js`); never put the key in
+`VITE_*` or an SSE query string. This is still one shared key, not per-person
+identity or audit attribution. Routing across more than one agent also remains
+unimplemented; both are new backend surface if asked for.
 
 **The Campaigns tab's "Call notes" card has a transcript section that is not
 a live transcript.** It shows `preConnectTranscriptRef` — whatever Deepgram

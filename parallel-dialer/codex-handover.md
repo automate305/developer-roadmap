@@ -220,12 +220,14 @@ Confirmed by reading the code, in rough priority order.
    process. A restart drops live calls, and it cannot scale past one instance.
    Fine for a pilot; needs Redis or similar before real load.
 
-2. **Auth is a shared secret.** `x-dialer-key`, and the SSE endpoint takes it in
-   the query string because `EventSource` cannot send headers. Replace with real
-   identity before this is internet-facing.
+2. **Auth is still a shared secret.** The browser now exchanges
+   `DIALER_API_KEY` for a short-lived HttpOnly operator session; SSE uses the
+   cookie rather than a query-string key. Trusted API clients can still use
+   `x-dialer-key`. Per-person identity and audit attribution remain to do.
 
-3. **No rate limiting** on `POST /api/sessions`. A bad caller can open unbounded
-   concurrent calls, which is a spend risk as much as a load one.
+3. **One active session per process** is enforced by `POST /api/sessions` as a
+   spend/abandonment guard. The shared API key still needs eventual per-person
+   identity and stronger operational rate limits before multiple agents.
 
 4. **Single-agent assumption.** One `DIALER_AGENT_IDENTITY` per process. Routing
    a batch to whichever agent is free is not implemented.

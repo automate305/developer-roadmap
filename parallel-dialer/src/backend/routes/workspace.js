@@ -6,20 +6,10 @@
  */
 import express from 'express';
 
-import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
+import { createOperatorAuth } from '../operatorAuth.js';
 
 const log = logger.child({ module: 'routes/workspace' });
-
-/** Same shared-secret guard as routes/api.js. */
-function requireApiKey(req, res, next) {
-  if (!config.dialerApiKey) return next();
-  const presented = req.get('x-dialer-key') ?? req.query.key;
-  if (presented !== config.dialerApiKey) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  return next();
-}
 
 /**
  * @param {object} deps
@@ -29,17 +19,17 @@ function requireApiKey(req, res, next) {
  *   isn't configured — outcomes are then accepted but only ever persisted
  *   nowhere but the agent's own screen, same as today.
  */
-export function createWorkspaceRouter({ store, outcomeQueue = null }) {
+export function createWorkspaceRouter({ store, outcomeQueue = null, auth = createOperatorAuth() }) {
   const router = express.Router();
   router.use(express.json({ limit: '2mb' })); // CSV imports can be a few thousand rows
 
   /** Everything the workstation needs on first paint. */
-  router.get('/state', requireApiKey, (_req, res) => {
+  router.get('/state', auth.guard, (_req, res) => {
     res.json(store.getState());
   });
 
   /** Import one list and its contacts, already parsed by the frontend. */
-  router.post('/lists', requireApiKey, async (req, res) => {
+  router.post('/lists', auth.guard, async (req, res) => {
     const { list, contacts } = req.body ?? {};
     if (!list?.id || !list?.name) return res.status(400).json({ error: 'list_required' });
     if (!Array.isArray(contacts)) return res.status(400).json({ error: 'contacts_required' });
@@ -54,7 +44,7 @@ export function createWorkspaceRouter({ store, outcomeQueue = null }) {
   });
 
   /** Delete a list and every contact filed under it. */
-  router.delete('/lists/:id', requireApiKey, async (req, res) => {
+  router.delete('/lists/:id', auth.guard, async (req, res) => {
     try {
       const existed = await store.deleteList(req.params.id);
       if (!existed) return res.status(404).json({ error: 'not_found' });
@@ -66,7 +56,7 @@ export function createWorkspaceRouter({ store, outcomeQueue = null }) {
   });
 
   /** Append one finished session's summary. */
-  router.post('/session-history', requireApiKey, async (req, res) => {
+  router.post('/session-history', auth.guard, async (req, res) => {
     const summary = req.body ?? {};
     if (!summary.id) return res.status(400).json({ error: 'summary_id_required' });
 
@@ -87,7 +77,7 @@ export function createWorkspaceRouter({ store, outcomeQueue = null }) {
    * outcome is durable once accepted (queued or dead-lettered), not once
    * synced.
    */
-  router.post('/outcomes', requireApiKey, (req, res) => {
+  router.post('/outcomes', auth.guard, (req, res) => {
     const { callSid, outcome, notes } = req.body ?? {};
     if (!callSid) return res.status(400).json({ error: 'callSid_required' });
     if (!outcome) return res.status(400).json({ error: 'outcome_required' });
