@@ -180,6 +180,7 @@ export default function App() {
         setLists((prev) => [...prev, list]);
       } catch (err) {
         console.error('failed to import list', err);
+        alert(`Import failed: ${err.message}. Check the browser console and Railway logs.`);
       }
     },
     [apiBase],
