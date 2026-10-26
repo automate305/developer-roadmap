@@ -158,6 +158,7 @@ export const config = Object.freeze({
     batchSize: Math.min(Math.max(int('DIALER_BATCH_SIZE', 4), 1), 10),
     ringTimeoutSeconds: int('DIALER_RING_TIMEOUT_SECONDS', 22),
     agentIdentity: str('DIALER_AGENT_IDENTITY', 'agent_1'),
+    agentPhoneNumber: str('AGENT_PHONE_NUMBER'),
     // Screening on = the AMD verdict decides who reaches the agent (parallel
     // dialing needs this). Screening off = power dialer: bridge on answer, the
     // agent hears everything and dispositions by hand. Off is the safer place

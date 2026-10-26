@@ -122,6 +122,17 @@ export async function redirectCall(callSid, twiml) {
  */
 export async function createVoiceAccessToken(identity) {
   const { spaceUrl, sipEndpointUsername, sipEndpointPassword, tokenTtlSeconds } = config.signalwire;
+
+  if (config.dialer.agentPhoneNumber && (!sipEndpointUsername || !sipEndpointPassword)) {
+    return {
+      token: 'phone-bridge',
+      identity,
+      expiresInSeconds: tokenTtlSeconds ?? 3600,
+      provider: 'signalwire',
+      phoneBridge: true,
+    };
+  }
+
   if (!spaceUrl || !sipEndpointUsername || !sipEndpointPassword) {
     throw new Error(
       'Cannot hand out SIP credentials: SIGNALWIRE_SPACE_URL / SIGNALWIRE_SIP_ENDPOINT_USERNAME / ' +

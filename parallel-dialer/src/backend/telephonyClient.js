@@ -85,6 +85,9 @@ export const callerId = usingSignalwire ? config.signalwire.callerId : config.tw
  */
 export function buildAgentDialNoun(identity) {
   if (!usingSignalwire) return `<Client>${escapeXml(identity)}</Client>`;
+  if (config.dialer.agentPhoneNumber) {
+    return `<Number>${escapeXml(config.dialer.agentPhoneNumber)}</Number>`;
+  }
   const sipDomain = config.signalwire.spaceUrl;
   return `<Sip>sip:${escapeXml(identity)}@${escapeXml(sipDomain)}</Sip>`;
 }
