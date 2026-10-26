@@ -18,6 +18,7 @@ import { Client } from '@hubspot/api-client';
 
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
+import { callerId, provider } from './telephonyClient.js';
 
 const log = logger.child({ module: 'hubspotService' });
 
@@ -413,7 +414,7 @@ export async function logCallActivity(args) {
 
   const {
     phone,
-    fromNumber = config.twilio.callerId,
+    fromNumber = callerId,
     durationSeconds = 0,
     disposition = 'FAILED',
     transcript = '',
@@ -580,7 +581,7 @@ function buildCallBody({ disposition, transcript, callSid, agentIdentity, durati
     `Duration: ${durationSeconds}s`,
     `Agent: ${agentIdentity ?? 'unassigned'}`,
   ];
-  if (callSid) lines.push(`Twilio Call SID: ${callSid}`);
+  if (callSid) lines.push(`${provider === 'signalwire' ? 'SignalWire' : 'Twilio'} Call SID: ${callSid}`);
   if (transcript) lines.push('', `Opening transcript: "${transcript.slice(0, 500)}"`);
   return lines.join('\n');
 }

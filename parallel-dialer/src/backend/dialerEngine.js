@@ -25,7 +25,8 @@ import { randomUUID } from 'node:crypto';
 
 import { config } from '../config/env.js';
 import { logger } from '../utils/logger.js';
-import { getTwilioClient, hangupCall, redirectCall } from './twilioClient.js';
+import { escapeXml } from '../utils/xml.js';
+import { getClient as getTelephonyClient, hangupCall, redirectCall, callerId, buildAgentDialNoun } from './telephonyClient.js';
 
 const log = logger.child({ module: 'dialerEngine' });
 
@@ -101,13 +102,13 @@ export class DialerEngine extends EventEmitter {
    * @param {object} [deps] injection seams for tests
    * @param {(sid: string, opts?: object) => Promise<boolean>} [deps.hangupCall]
    * @param {(sid: string, twiml: string) => Promise<unknown>} [deps.redirectCall]
-   * @param {() => import('twilio').Twilio} [deps.getClient]
+   * @param {() => object} [deps.getClient] REST client for the active telephony provider
    */
   constructor(deps = {}) {
     super();
     this.hangupCall = deps.hangupCall ?? hangupCall;
     this.redirectCall = deps.redirectCall ?? redirectCall;
-    this.getClient = deps.getClient ?? getTwilioClient;
+    this.getClient = deps.getClient ?? getTelephonyClient;
     this.setMaxListeners(0);
   }
 
@@ -277,12 +278,14 @@ export class DialerEngine extends EventEmitter {
     try {
       const call = await rest.calls.create({
         to: leg.lead.phone,
-        from: config.twilio.callerId,
+        from: callerId,
         url: `${config.publicBaseUrl}/twiml/outbound?${params.toString()}`,
         method: 'POST',
         timeout: config.dialer.ringTimeoutSeconds,
         // Twilio's own AMD is deliberately not used: it adds seconds of
         // latency. Classification happens in streamHandler.js instead.
+        // (SignalWire's Compatibility API simply ignores this key if it
+        // doesn't recognise it — harmless either way.)
         machineDetection: undefined,
         statusCallback: `${config.publicBaseUrl}/twiml/status?${params.toString()}`,
         statusCallbackMethod: 'POST',
@@ -446,7 +449,9 @@ export class DialerEngine extends EventEmitter {
       // answerOnBridge keeps the lead hearing ringback (not silence) until the
       // agent's browser actually picks up.
       `<Dial answerOnBridge="true" timeLimit="14400" action="${config.publicBaseUrl}/twiml/bridge-status?legId=${leg.id}" method="POST">` +
-      `<Client>${escapeXml(identity)}</Client>` +
+      // Provider-specific — Twilio's `<Client>` noun vs. SignalWire's `<Sip>`
+      // workaround. See telephonyClient.js#buildAgentDialNoun.
+      buildAgentDialNoun(identity) +
       '</Dial>' +
       '</Response>';
 
@@ -771,15 +776,7 @@ export class DialerEngine extends EventEmitter {
   }
 }
 
-/** Minimal XML escaping for values interpolated into TwiML. */
-export function escapeXml(value) {
-  return String(value)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;');
-}
+export { escapeXml };
 
 /** Process-wide singleton used by the routes and the stream handler. */
 export const dialerEngine = new DialerEngine();

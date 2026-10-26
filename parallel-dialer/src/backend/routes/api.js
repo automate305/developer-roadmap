@@ -7,7 +7,7 @@ import express from 'express';
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { dialerEngine, normalizeLead } from '../dialerEngine.js';
-import { createVoiceAccessToken } from '../twilioClient.js';
+import { createVoiceAccessToken, provider } from '../telephonyClient.js';
 
 const log = logger.child({ module: 'routes/api' });
 
@@ -56,19 +56,25 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
   });
 
   /**
-   * Mint a Twilio Voice access token for the browser Device.
-   * The identity here must match the `<Client>` the engine bridges onto.
+   * Mint a browser-softphone access token for the active telephony provider.
+   * The identity here must match whatever the engine bridges onto: Twilio's
+   * `<Client>` identity, or a SignalWire SIP Endpoint's username.
+   *
+   * `provider` rides along so the frontend knows which softphone stack to
+   * boot (Twilio Voice SDK vs. the SignalWire/SIP.js path in
+   * DialerDevice.jsx) without needing its own copy of `TELEPHONY_PROVIDER` —
+   * one source of truth instead of two env vars that could drift apart.
    */
-  router.get('/token', requireApiKey, (req, res) => {
+  router.get('/token', requireApiKey, async (req, res) => {
     const identity = String(req.query.identity ?? config.dialer.agentIdentity);
     if (!/^[A-Za-z0-9_.\-]{1,121}$/.test(identity)) {
       return res.status(400).json({ error: 'invalid_identity' });
     }
 
     try {
-      const payload = createVoiceAccessToken(identity);
-      log.info('issued voice token', { identity, ttl: payload.expiresInSeconds });
-      return res.json(payload);
+      const payload = await createVoiceAccessToken(identity);
+      log.info('issued voice token', { identity, provider, ttl: payload.expiresInSeconds });
+      return res.json({ ...payload, provider });
     } catch (err) {
       log.error('token minting failed', { err });
       return res.status(500).json({ error: 'token_unavailable', message: err.message });
