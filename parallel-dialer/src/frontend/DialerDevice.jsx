@@ -1,21 +1,37 @@
 /**
  * DialerDevice.jsx — WebRTC agent workstation. Rendered as the Campaigns tab.
  *
- * Owns the Twilio Voice `Device` lifecycle and the agent's view of a dialing
- * session. `status` moves along the transition table in
- * ./lib/callStateMachine.js — see that file for the full state diagram and
- * legal transitions; this component only ever calls `dispatchStatus(event)`,
- * never `setStatus` directly.
+ * Owns the softphone's lifecycle and the agent's view of a dialing session.
+ * `status` moves along the transition table in ./lib/callStateMachine.js —
+ * see that file for the full state diagram and legal transitions; this
+ * component only ever calls `dispatchStatus(event)`, never `setStatus`
+ * directly.
  *
  * The connected lead always arrives as an *inbound* call to this browser: the
- * backend bridges the winning outbound leg with `<Dial><Client>`, so the agent
- * never dials — they answer. With auto-answer on, the call is accepted the
- * instant it arrives, which is what keeps the human on the other end from
- * hearing dead air after they say "hello".
+ * backend bridges the winning outbound leg with `<Dial>`, so the agent never
+ * dials — they answer. With auto-answer on, the call is accepted the instant
+ * it arrives, which is what keeps the human on the other end from hearing
+ * dead air after they say "hello".
+ *
+ * ── Two softphone stacks behind one component ───────────────────────────────
+ * `/api/token`'s response carries `provider` — one source of truth, so this
+ * file never needs its own copy of `TELEPHONY_PROVIDER` to drift out of sync
+ * with the backend's. Twilio uses `@twilio/voice-sdk`'s `Device`/`Call`
+ * object model, built for exactly this (register an identity, get bridged
+ * inbound calls). SignalWire has no equivalent SDK object for this shape —
+ * see telephonyClient.js#buildAgentDialNoun on the backend for the full
+ * reasoning — so the SignalWire path below registers a classic SIP Endpoint
+ * over WebSocket with `sip.js`'s `SimpleUser` instead, and `createCallAdapter`
+ * wraps it in a Call-shaped facade (`.on()`, `.accept()`, `.mute()`, …) so
+ * every call-handling line below this point — `attachCall`, `acceptCall`,
+ * `toggleMute`, `hangUp` — runs unchanged for both providers. Only
+ * `goOnline`/`goOffline` know which stack is live.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Device } from '@twilio/voice-sdk';
+import { SimpleUser } from 'sip.js/lib/platform/web/simple-user/simple-user.js';
 import { AgentStatus, transition } from './lib/callStateMachine.js';
+import { createSignalwireCallAdapter, attachVolumeMeter } from './lib/signalwireSoftphone.js';
 
 export { AgentStatus };
 
@@ -134,6 +150,16 @@ export default function DialerDevice({
   const callRef = useRef(null);
   const callTimerRef = useRef(null);
   const callStartRef = useRef(null);
+  // SignalWire only: which stack is live, so goOffline/unmount know whether
+  // deviceRef holds a Twilio Device (`.destroy()`) or a SIP.js SimpleUser
+  // (`.disconnect()`), and the stop function for the volume-meter polling
+  // loop attachVolumeMeter() returns — there is no SDK-native volume event
+  // to tear down for that path, just a setInterval/AudioContext.
+  const providerRef = useRef('twilio');
+  const stopVolumeMeterRef = useRef(null);
+  // SimpleUser needs a real <audio> element to attach the remote stream to;
+  // Twilio's Voice SDK plays remote audio itself and needs no DOM element.
+  const remoteAudioRef = useRef(null);
   const [elapsed, setElapsed] = useState(0);
   const [notes, setNotes] = useState('');
   // The AMD-phase snippet for whichever leg most recently won — captured off
@@ -220,6 +246,14 @@ export default function DialerDevice({
     });
   }, []);
 
+  /**
+   * Returns the full `/api/token` payload, not just the token string — the
+   * SignalWire path needs `identity` (the SIP Endpoint username, which may
+   * not equal the `identity` prop — see signalwireClient.js#createVoiceAccessToken),
+   * `sipDomain` and `wsServer` alongside it, and `provider` is how goOnline()
+   * decides which softphone stack to boot without its own copy of
+   * `TELEPHONY_PROVIDER`.
+   */
   const fetchToken = useCallback(async () => {
     const response = await fetch(`${apiBase}/api/token?identity=${encodeURIComponent(identity)}`, {
       headers: authHeaders,
@@ -228,8 +262,7 @@ export default function DialerDevice({
       const body = await response.json().catch(() => ({}));
       throw new Error(body.message || `Token request failed (${response.status})`);
     }
-    const { token } = await response.json();
-    return token;
+    return response.json();
   }, [apiBase, identity, authHeaders]);
 
   // ───────────────────────────────────────────────────── call attachment ────
@@ -322,17 +355,27 @@ export default function DialerDevice({
 
   // ─────────────────────────────────────────────────── device lifecycle ────
 
-  const goOnline = useCallback(async () => {
-    if (deviceRef.current) return;
+  /** The incoming-call wiring is identical once `call` is Call-shaped —
+   * shared by both bootTwilioDevice and bootSignalwireUser below. */
+  const handleIncomingCall = useCallback(
+    (call, fromLabel) => {
+      pushEvent('info', `Incoming lead from ${fromLabel ?? 'unknown'}`);
+      attachCall(call);
 
-    setError(null);
-    dispatchStatus('CONNECT');
-    pushEvent('info', 'Requesting access token…');
+      if (autoAnswerRef.current) {
+        call.accept();
+      } else {
+        setPendingCall(call);
+        dispatchStatus('INCOMING');
+      }
+    },
+    [attachCall, pushEvent, dispatchStatus],
+  );
 
-    try {
-      const token = await fetchToken();
-
-      const device = new Device(token, {
+  /** Twilio Voice SDK Device — unchanged from before the SignalWire branch existed. */
+  const bootTwilioDevice = useCallback(
+    async (initialPayload) => {
+      const device = new Device(initialPayload.token, {
         // Opus for the browser hop; pcmu keeps parity with the 8 kHz PSTN leg
         // when Opus is unavailable.
         codecPreferences: ['opus', 'pcmu'],
@@ -360,42 +403,130 @@ export default function DialerDevice({
       });
 
       // Tokens are short-lived; refresh before expiry so an in-progress
-      // conversation is never dropped by an auth failure.
+      // conversation is never dropped by an auth failure. SignalWire's SIP
+      // REGISTER refresh is handled internally by SIP.js's Registerer —
+      // there is no equivalent event to wire up on that path.
       device.on('tokenWillExpire', async () => {
         try {
           const fresh = await fetchToken();
-          device.updateToken(fresh);
+          device.updateToken(fresh.token);
           pushEvent('info', 'Access token refreshed');
         } catch (err) {
           pushEvent('error', `Token refresh failed: ${err.message}`);
         }
       });
 
-      device.on('incoming', (call) => {
-        pushEvent('info', `Incoming lead from ${call.parameters?.From ?? 'unknown'}`);
-        attachCall(call);
-
-        if (autoAnswerRef.current) {
-          call.accept();
-        } else {
-          setPendingCall(call);
-          dispatchStatus('INCOMING');
-        }
-      });
+      device.on('incoming', (call) => handleIncomingCall(call, call.parameters?.From));
 
       deviceRef.current = device;
+      providerRef.current = 'twilio';
       await device.register();
+    },
+    [fetchToken, identity, pushEvent, dispatchStatus, handleIncomingCall],
+  );
+
+  /**
+   * SignalWire path: a SIP.js `SimpleUser` registered to a classic SignalWire
+   * SIP Endpoint over WebSocket. See this file's top comment and
+   * lib/signalwireSoftphone.js for why this exists instead of a
+   * Twilio-Device-shaped SignalWire SDK call.
+   */
+  const bootSignalwireUser = useCallback(
+    async (payload) => {
+      if (!payload.wsServer || !payload.sipDomain) {
+        throw new Error('SignalWire token response is missing wsServer/sipDomain');
+      }
+
+      const aor = `sip:${payload.identity}@${payload.sipDomain}`;
+      let call = null;
+
+      const user = new SimpleUser(payload.wsServer, {
+        aor,
+        media: { remote: { audio: remoteAudioRef.current ?? undefined } },
+        userAgentOptions: {
+          authorizationUsername: payload.identity,
+          authorizationPassword: payload.token,
+        },
+        delegate: {
+          onServerConnect: () => {
+            pushEvent('info', 'Connected to SignalWire');
+          },
+          onServerDisconnect: (err) => {
+            if (err) {
+              setError(err.message ?? String(err));
+              dispatchStatus('DEVICE_ERROR');
+              pushEvent('error', `SignalWire connection lost: ${err.message ?? err}`);
+            }
+          },
+          onRegistered: () => {
+            dispatchStatus('REGISTERED');
+            pushEvent('success', `Registered as ${payload.identity} (SIP)`);
+          },
+          onUnregistered: () => {
+            dispatchStatus('UNREGISTERED');
+            pushEvent('warn', 'SIP registration ended');
+          },
+          onCallReceived: () => {
+            call = createSignalwireCallAdapter(user);
+            handleIncomingCall(call, null);
+          },
+          onCallAnswered: () => {
+            call?.emit('accept');
+            stopVolumeMeterRef.current = attachVolumeMeter(user, (input, output) => {
+              call?.emit('volume', input, output);
+            });
+          },
+          onCallHangup: () => {
+            stopVolumeMeterRef.current?.();
+            stopVolumeMeterRef.current = null;
+            call?.emit('disconnect');
+            call = null;
+          },
+        },
+      });
+
+      deviceRef.current = user;
+      providerRef.current = 'signalwire';
+
+      await user.connect();
+      await user.register();
+    },
+    [handleIncomingCall, pushEvent, dispatchStatus],
+  );
+
+  const goOnline = useCallback(async () => {
+    if (deviceRef.current) return;
+
+    setError(null);
+    dispatchStatus('CONNECT');
+    pushEvent('info', 'Requesting access token…');
+
+    try {
+      const payload = await fetchToken();
+
+      if (payload.provider === 'signalwire') {
+        await bootSignalwireUser(payload);
+      } else {
+        await bootTwilioDevice(payload);
+      }
     } catch (err) {
       setError(err.message);
       dispatchStatus('DEVICE_ERROR');
       pushEvent('error', `Failed to go online: ${err.message}`);
       deviceRef.current = null;
     }
-  }, [fetchToken, attachCall, identity, pushEvent, dispatchStatus]);
+  }, [fetchToken, bootTwilioDevice, bootSignalwireUser, pushEvent, dispatchStatus]);
 
   const goOffline = useCallback(() => {
     callRef.current?.disconnect();
-    deviceRef.current?.destroy();
+    stopVolumeMeterRef.current?.();
+    stopVolumeMeterRef.current = null;
+    if (providerRef.current === 'signalwire') {
+      deviceRef.current?.unregister().catch(() => {});
+      deviceRef.current?.disconnect().catch(() => {});
+    } else {
+      deviceRef.current?.destroy();
+    }
     deviceRef.current = null;
     callRef.current = null;
     dispatchStatus('GO_OFFLINE');
@@ -411,12 +542,18 @@ export default function DialerDevice({
     autoAnswerRef.current = autoAnswer;
   }, [autoAnswer]);
 
-  // Destroy the Device on unmount so the browser releases the microphone.
+  // Release the Device/SIP session on unmount so the browser releases the
+  // microphone either way.
   useEffect(
     () => () => {
       if (callTimerRef.current) clearInterval(callTimerRef.current);
+      stopVolumeMeterRef.current?.();
       callRef.current?.disconnect();
-      deviceRef.current?.destroy();
+      if (providerRef.current === 'signalwire') {
+        deviceRef.current?.disconnect().catch(() => {});
+      } else {
+        deviceRef.current?.destroy();
+      }
     },
     [],
   );
@@ -666,6 +803,10 @@ export default function DialerDevice({
 
   return (
     <div className="tab tab--campaigns">
+      {/* SignalWire path only — SimpleUser plays the remote stream through
+          this element; the Twilio Voice SDK plays its own audio and never
+          touches this ref. Hidden: it's a plumbing element, not UI. */}
+      <audio ref={remoteAudioRef} autoPlay hidden />
       {error && (
         <div className="alert alert--error" role="alert">
           {error}
