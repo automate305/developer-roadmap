@@ -504,7 +504,12 @@ export default function DialerDevice({
     try {
       const payload = await fetchToken();
 
-      if (payload.provider === 'signalwire') {
+      if (payload.phoneBridge) {
+        providerRef.current = 'signalwire';
+        deviceRef.current = { _phoneBridge: true };
+        dispatchStatus('REGISTERED');
+        pushEvent('success', `Phone-bridge mode — calls ring ${payload.identity}'s phone`);
+      } else if (payload.provider === 'signalwire') {
         await bootSignalwireUser(payload);
       } else {
         await bootTwilioDevice(payload);
@@ -521,7 +526,9 @@ export default function DialerDevice({
     callRef.current?.disconnect();
     stopVolumeMeterRef.current?.();
     stopVolumeMeterRef.current = null;
-    if (providerRef.current === 'signalwire') {
+    if (deviceRef.current?._phoneBridge) {
+      // Phone-bridge stub — nothing to tear down.
+    } else if (providerRef.current === 'signalwire') {
       deviceRef.current?.unregister().catch(() => {});
       deviceRef.current?.disconnect().catch(() => {});
     } else {
