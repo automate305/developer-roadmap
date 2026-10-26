@@ -1,6 +1,9 @@
 .idea
 .temp
 
+# local agent worktrees (not part of the project)
+.claude/worktrees/
+
 # dependencies
 node_modules/
 
