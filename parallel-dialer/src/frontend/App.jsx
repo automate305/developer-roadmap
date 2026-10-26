@@ -70,16 +70,68 @@ export default function App() {
 
   const identity = import.meta.env.VITE_AGENT_IDENTITY ?? 'agent_1';
   const apiBase = import.meta.env.VITE_API_BASE ?? '';
-  const apiKey = import.meta.env.VITE_DIALER_API_KEY ?? '';
-  const authHeaders = useMemo(() => (apiKey ? { 'x-dialer-key': apiKey } : {}), [apiKey]);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [operatorKey, setOperatorKey] = useState('');
+  const [authError, setAuthError] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
+
+  useEffect(() => {
+    fetch(`${apiBase}/api/auth/session`)
+      .then((res) => res.json())
+      .then((body) => setAuthenticated(body.authenticated === true))
+      .catch(() => setAuthError('Could not reach the dialer server.'))
+      .finally(() => setCheckingAuth(false));
+  }, [apiBase]);
+
+  async function signIn(event) {
+    event.preventDefault();
+    setSigningIn(true);
+    setAuthError('');
+    try {
+      const res = await fetch(`${apiBase}/api/auth/login`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: operatorKey }),
+      });
+      if (!res.ok) throw new Error(res.status === 429 ? 'Too many attempts. Try again in 15 minutes.' : 'Invalid dashboard key.');
+      setOperatorKey('');
+      setAuthenticated(true);
+    } catch (err) {
+      setAuthError(err.message);
+    } finally {
+      setSigningIn(false);
+    }
+  }
+
+  async function signOut() {
+    try {
+      const res = await fetch(`${apiBase}/api/sessions`);
+      if (!res.ok) throw new Error('Could not check active sessions.');
+      const { sessions } = await res.json();
+      const active = sessions.filter((entry) => entry.state === 'DIALING' || entry.state === 'IN_CALL');
+      if (active.length && !window.confirm('Signing out will stop active dialing and hang up live calls. Continue?')) return;
+      for (const entry of active) {
+        const stopped = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(entry.sessionId)}`, { method: 'DELETE' });
+        if (!stopped.ok) throw new Error('Could not stop the active session.');
+      }
+      const logout = await fetch(`${apiBase}/api/auth/logout`, { method: 'POST' });
+      if (!logout.ok) throw new Error('Could not sign out.');
+      setAuthenticated(false);
+      setContacts([]);
+      setLists([]);
+      setSessionHistory([]);
+    } catch (err) {
+      window.alert(err.message);
+    }
+  }
 
   // Contacts/Lists/Session History all live on the server now; load the
   // snapshot once on mount. A failure here is loud (console only, no retry
   // UI yet) rather than silent — leaving the tabs empty is confusing enough
   // to notice and report, which beats pretending the workspace is empty.
   useEffect(() => {
+    if (!authenticated) return;
     let cancelled = false;
-    fetch(`${apiBase}/api/workspace/state`, { headers: authHeaders })
+    fetch(`${apiBase}/api/workspace/state`)
       .then((res) => {
         if (!res.ok) throw new Error(`workspace state request failed (${res.status})`);
         return res.json();
@@ -96,7 +148,7 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, [apiBase, authHeaders]);
+  }, [apiBase, authenticated]);
 
   const handleImport = useCallback(
     async (csvText, name) => {
@@ -116,7 +168,7 @@ export default function App() {
       try {
         const response = await fetch(`${apiBase}/api/workspace/lists`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ list, contacts: withIds }),
         });
         if (!response.ok) throw new Error(`import failed (${response.status})`);
@@ -130,7 +182,7 @@ export default function App() {
         console.error('failed to import list', err);
       }
     },
-    [apiBase, authHeaders],
+    [apiBase],
   );
 
   const handleDeleteList = useCallback(
@@ -138,7 +190,6 @@ export default function App() {
       try {
         const response = await fetch(`${apiBase}/api/workspace/lists/${encodeURIComponent(listId)}`, {
           method: 'DELETE',
-          headers: authHeaders,
         });
         if (!response.ok && response.status !== 404) throw new Error(`delete failed (${response.status})`);
 
@@ -148,7 +199,7 @@ export default function App() {
         console.error('failed to delete list', err);
       }
     },
-    [apiBase, authHeaders],
+    [apiBase],
   );
 
   const handleStartCampaign = useCallback(
@@ -184,7 +235,7 @@ export default function App() {
 
       fetch(`${apiBase}/api/workspace/session-history`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(summary),
       })
         .then((response) => {
@@ -192,10 +243,29 @@ export default function App() {
         })
         .catch((err) => console.error('failed to persist session history', err));
     },
-    [apiBase, authHeaders],
+    [apiBase],
   );
 
   const dialableCount = useMemo(() => contacts.filter((c) => c.phone1).length, [contacts]);
+
+  if (checkingAuth) return <main className="app"><p>Checking operator session…</p></main>;
+  if (!authenticated) return (
+    <main className="app app--login">
+      <form className="operator-login" onSubmit={signIn}>
+        <span className="operator-login__eyebrow">AUTOMATE305 · PRIVATE OPERATIONS</span>
+        <h1>A305 Dialer</h1>
+        <p>Unlock the agent workstation.</p>
+        <label className="field">Dashboard key
+          <input type="password" autoComplete="current-password" required value={operatorKey}
+            onChange={(event) => setOperatorKey(event.target.value)} placeholder="Enter dashboard key" />
+        </label>
+        {authError && <p role="alert" className="operator-login__error">{authError}</p>}
+        <button className="btn btn--primary btn--block" type="submit" disabled={signingIn}>
+          {signingIn ? 'Unlocking…' : 'Unlock dialer'}
+        </button>
+      </form>
+    </main>
+  );
 
   return (
     <main className="app">
@@ -210,6 +280,7 @@ export default function App() {
             <button type="button" className="btn btn--ghost theme-toggle" onClick={toggleTheme}>
               {theme === 'dark' ? 'Light theme' : 'Dark theme'}
             </button>
+            <button type="button" className="btn btn--ghost" onClick={signOut}>Sign out</button>
           </div>
         </header>
 
@@ -234,7 +305,6 @@ export default function App() {
           <DialerDevice
             apiBase={apiBase}
             identity={identity}
-            apiKey={apiKey}
             loadRequest={loadRequest}
             contacts={contacts}
             onLegEnded={handleLegEnded}

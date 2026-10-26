@@ -78,6 +78,19 @@ CORS_ORIGINS=https://<your-railway-domain>
 
 `DIALER_API_KEY` is the only thing standing in front of the control plane, which
 can start outbound calls. Treat it like a password, not a formality.
+The agent enters it into the dashboard sign-in screen; the browser receives
+an HttpOnly session cookie. Do not set `VITE_DIALER_API_KEY` (that would publish
+the key in the JS bundle). The key is not SignalWire's signing key.
+
+For `dialer.automate305.com`, add that custom domain in Railway's service
+Networking settings, then create the DNS record Railway displays at your DNS
+provider and wait for Railway's TLS certificate to become active. Once the
+hostname serves this app over HTTPS, set
+`PUBLIC_BASE_URL=https://dialer.automate305.com` and
+`CORS_ORIGINS=https://dialer.automate305.com` and redeploy. Keep the Railway
+domain until the new hostname is verified. No Vercel deployment is needed.
+If the SignalWire number's configured inbound voice webhook points at the old
+hostname, update it only after the custom hostname is serving the same app.
 
 ## 5. Point Twilio at it
 
@@ -100,7 +113,8 @@ curl https://<domain>/health
 # {"status":"ok","uptimeSeconds":...}
 ```
 
-Then open `https://<domain>` and click **Go online**. A `READY` badge means the
+Then open `https://<domain>`, unlock the dashboard with `DIALER_API_KEY`, and
+click **Go online**. A `READY` badge means the
 token endpoint, the Twilio credentials and the WebRTC registration all work.
 
 Check the deploy logs for the boot line and act on any warning it prints:
