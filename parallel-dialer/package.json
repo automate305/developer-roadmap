@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "private": false,
   "license": "MIT",
-  "description": "Ultra-fast parallel dialer: Twilio Media Streams + Deepgram Nova-2 answer detection + WebRTC agent workstation + HubSpot CRM logging.",
+  "description": "Ultra-fast parallel dialer: Twilio/SignalWire Media Streams + Deepgram Nova-2 answer detection + WebRTC agent workstation + HubSpot CRM logging.",
   "type": "module",
   "engines": {
     "node": ">=20.11.0"
@@ -25,6 +25,7 @@
     "parallel-dialer",
     "power-dialer",
     "twilio",
+    "signalwire",
     "media-streams",
     "deepgram",
     "answering-machine-detection",
@@ -34,6 +35,7 @@
   "dependencies": {
     "@deepgram/sdk": "^3.9.0",
     "@hubspot/api-client": "^12.0.1",
+    "@signalwire/js": "^3.29.1",
     "@twilio/voice-sdk": "^2.12.3",
     "@vitejs/plugin-react": "^4.3.4",
     "cors": "^2.8.5",

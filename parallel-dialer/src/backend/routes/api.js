@@ -59,14 +59,14 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
    * Mint a Twilio Voice access token for the browser Device.
    * The identity here must match the `<Client>` the engine bridges onto.
    */
-  router.get('/token', requireApiKey, (req, res) => {
+  router.get('/token', requireApiKey, async (req, res) => {
     const identity = String(req.query.identity ?? config.dialer.agentIdentity);
     if (!/^[A-Za-z0-9_.\-]{1,121}$/.test(identity)) {
       return res.status(400).json({ error: 'invalid_identity' });
     }
 
     try {
-      const payload = createVoiceAccessToken(identity);
+      const payload = await createVoiceAccessToken(identity);
       log.info('issued voice token', { identity, ttl: payload.expiresInSeconds });
       return res.json(payload);
     } catch (err) {

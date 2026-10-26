@@ -109,7 +109,7 @@ export function createVoiceAccessToken(identity) {
     }),
   );
 
-  return { token: token.toJwt(), identity, expiresInSeconds: tokenTtlSeconds };
+  return { token: token.toJwt(), identity, expiresInSeconds: tokenTtlSeconds, provider: 'twilio' };
 }
 
 /**

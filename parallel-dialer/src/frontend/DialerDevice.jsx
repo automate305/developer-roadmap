@@ -14,7 +14,7 @@
  * hearing dead air after they say "hello".
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Device } from '@twilio/voice-sdk';
+import { createVoiceDevice } from './lib/voiceDeviceAdapter.js';
 import { AgentStatus, transition } from './lib/callStateMachine.js';
 
 export { AgentStatus };
@@ -91,6 +91,7 @@ export default function DialerDevice({
   apiBase = '',
   identity = 'agent_1',
   apiKey = '',
+  provider = 'twilio',
   loadRequest = null,
   contacts = [],
   onLegEnded,
@@ -332,16 +333,7 @@ export default function DialerDevice({
     try {
       const token = await fetchToken();
 
-      const device = new Device(token, {
-        // Opus for the browser hop; pcmu keeps parity with the 8 kHz PSTN leg
-        // when Opus is unavailable.
-        codecPreferences: ['opus', 'pcmu'],
-        // Pre-warming the media connection removes the ICE handshake from the
-        // critical path when a lead is bridged in.
-        maxCallSignalingTimeoutMs: 30000,
-        enableImprovedSignalingErrorPrecision: true,
-        logLevel: 'error',
-      });
+      const device = createVoiceDevice(token, { provider });
 
       device.on('registered', () => {
         dispatchStatus('REGISTERED');

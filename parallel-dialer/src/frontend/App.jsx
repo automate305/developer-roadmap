@@ -71,6 +71,7 @@ export default function App() {
   const identity = import.meta.env.VITE_AGENT_IDENTITY ?? 'agent_1';
   const apiBase = import.meta.env.VITE_API_BASE ?? '';
   const apiKey = import.meta.env.VITE_DIALER_API_KEY ?? '';
+  const provider = import.meta.env.VITE_VOICE_PROVIDER ?? 'twilio';
   const authHeaders = useMemo(() => (apiKey ? { 'x-dialer-key': apiKey } : {}), [apiKey]);
 
   // Contacts/Lists/Session History all live on the server now; load the
@@ -235,6 +236,7 @@ export default function App() {
             apiBase={apiBase}
             identity={identity}
             apiKey={apiKey}
+            provider={provider}
             loadRequest={loadRequest}
             contacts={contacts}
             onLegEnded={handleLegEnded}
