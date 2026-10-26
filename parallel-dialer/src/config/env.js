@@ -218,6 +218,7 @@ const REQUIRED = usingSignalwire
  */
 export function validateConfig() {
   const missing = REQUIRED.filter(([, value]) => !value).map(([name]) => name);
+  if (config.isProduction && !config.dialerApiKey) missing.push('DIALER_API_KEY');
   const warnings = [];
 
   if (!config.deepgram.apiKey) {

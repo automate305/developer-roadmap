@@ -6,20 +6,18 @@
  * built by hand-free string assembly and returned in a single write.
  */
 import express from 'express';
-import twilio from 'twilio';
 
 import { config } from '../../config/env.js';
 import { logger } from '../../utils/logger.js';
 import { dialerEngine } from '../dialerEngine.js';
-import { webhookAuth, getCallerId } from '../voiceProvider.js';
+import { VoiceResponse, webhookAuth, callerId } from '../telephonyClient.js';
 
 const log = logger.child({ module: 'routes/twiml' });
-const { VoiceResponse } = twilio.twiml;
 
 export function createTwimlRouter({ engine = dialerEngine } = {}) {
   const router = express.Router();
 
-  // Twilio posts application/x-www-form-urlencoded.
+  // Both providers post application/x-www-form-urlencoded.
   router.use(express.urlencoded({ extended: false }));
   router.use(webhookAuth());
 
@@ -103,7 +101,7 @@ export function createTwimlRouter({ engine = dialerEngine } = {}) {
       return res.type('text/xml').send(response.toString());
     }
 
-    const dial = response.dial({ callerId: getCallerId(), answerOnBridge: true });
+    const dial = response.dial({ callerId, answerOnBridge: true });
     dial.number(to); // VoiceResponse escapes the value for us
 
     log.info('agent manual dial', { to, from: req.body.From });

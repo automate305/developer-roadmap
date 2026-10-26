@@ -5,9 +5,10 @@
 import express from 'express';
 
 import { config } from '../../config/env.js';
+import { createOperatorAuth } from '../operatorAuth.js';
 import { logger } from '../../utils/logger.js';
 import { dialerEngine, normalizeLead } from '../dialerEngine.js';
-import { createVoiceAccessToken } from '../voiceProvider.js';
+import { createVoiceAccessToken, provider } from '../telephonyClient.js';
 
 const log = logger.child({ module: 'routes/api' });
 
@@ -28,20 +29,7 @@ const BROADCAST_EVENTS = [
   'leg:ended',
 ];
 
-/**
- * Shared-secret guard for control endpoints. This is a stopgap, not real auth —
- * put your identity provider in front of these routes before production.
- */
-function requireApiKey(req, res, next) {
-  if (!config.dialerApiKey) return next();
-  const presented = req.get('x-dialer-key') ?? req.query.key;
-  if (presented !== config.dialerApiKey) {
-    return res.status(401).json({ error: 'unauthorized' });
-  }
-  return next();
-}
-
-export function createApiRouter({ engine = dialerEngine } = {}) {
+export function createApiRouter({ engine = dialerEngine, auth = createOperatorAuth() } = {}) {
   const router = express.Router();
   router.use(express.json({ limit: '1mb' }));
 
@@ -55,11 +43,21 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
     });
   });
 
+  router.get('/auth/session', auth.status);
+  router.post('/auth/login', auth.login);
+  router.post('/auth/logout', auth.logout);
+
   /**
-   * Mint a Twilio Voice access token for the browser Device.
-   * The identity here must match the `<Client>` the engine bridges onto.
+   * Mint a browser-softphone access token for the active telephony provider.
+   * The identity here must match whatever the engine bridges onto: Twilio's
+   * `<Client>` identity, or a SignalWire SIP Endpoint's username.
+   *
+   * `provider` rides along so the frontend knows which softphone stack to
+   * boot (Twilio Voice SDK vs. the SignalWire/SIP.js path in
+   * DialerDevice.jsx) without needing its own copy of `TELEPHONY_PROVIDER` —
+   * one source of truth instead of two env vars that could drift apart.
    */
-  router.get('/token', requireApiKey, async (req, res) => {
+  router.get('/token', auth.guard, async (req, res) => {
     const identity = String(req.query.identity ?? config.dialer.agentIdentity);
     if (!/^[A-Za-z0-9_.\-]{1,121}$/.test(identity)) {
       return res.status(400).json({ error: 'invalid_identity' });
@@ -67,8 +65,8 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
 
     try {
       const payload = await createVoiceAccessToken(identity);
-      log.info('issued voice token', { identity, ttl: payload.expiresInSeconds });
-      return res.json(payload);
+      log.info('issued voice token', { identity, provider, ttl: payload.expiresInSeconds });
+      return res.json({ ...payload, provider });
     } catch (err) {
       log.error('token minting failed', { err });
       return res.status(500).json({ error: 'token_unavailable', message: err.message });
@@ -83,8 +81,14 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
    * `screening: false` with `batchSize: 1` is power-dial mode: one line, agent
    * bridged on answer, no AMD verdict acted on.
    */
-  router.post('/sessions', requireApiKey, async (req, res) => {
+  router.post('/sessions', auth.guard, async (req, res) => {
     const { agentIdentity, leads, batchSize, autoAdvance, screening } = req.body ?? {};
+
+    // One agent per process: a second active session would dial more leads
+    // than this workstation can answer, and can amplify spend on a retry.
+    if (engine.listSessions().some((entry) => entry.state === 'DIALING' || entry.state === 'IN_CALL')) {
+      return res.status(409).json({ error: 'session_already_active' });
+    }
 
     if (!Array.isArray(leads) || leads.length === 0) {
       return res.status(400).json({ error: 'leads_required' });
@@ -110,18 +114,18 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
     }
   });
 
-  router.get('/sessions', requireApiKey, (_req, res) => {
+  router.get('/sessions', auth.guard, (_req, res) => {
     res.json({ sessions: engine.listSessions() });
   });
 
-  router.get('/sessions/:id', requireApiKey, (req, res) => {
+  router.get('/sessions/:id', auth.guard, (req, res) => {
     const session = engine.snapshotSession(req.params.id);
     if (!session) return res.status(404).json({ error: 'not_found' });
     return res.json(session);
   });
 
   /** Stop a session and drop every live leg it owns. */
-  router.delete('/sessions/:id', requireApiKey, async (req, res) => {
+  router.delete('/sessions/:id', auth.guard, async (req, res) => {
     const session = await engine.stopSession(req.params.id, 'stopped_by_agent');
     if (!session) return res.status(404).json({ error: 'not_found' });
     return res.json(session);
@@ -132,7 +136,7 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
    * SSE rather than a second WebSocket: the flow is one-directional and this
    * survives proxies that mangle WS upgrades.
    */
-  router.get('/events', requireApiKey, (req, res) => {
+  router.get('/events', auth.guard, (req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
@@ -157,6 +161,10 @@ export function createApiRouter({ engine = dialerEngine } = {}) {
 
     // Comment frames keep intermediaries from reaping an idle connection.
     const heartbeat = setInterval(() => {
+      if (!auth.isActive(req) && !req.get('x-dialer-key')) {
+        res.end();
+        return;
+      }
       try {
         res.write(': ping\n\n');
       } catch {

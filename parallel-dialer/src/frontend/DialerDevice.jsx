@@ -87,7 +87,6 @@ const OUTCOMES = [
  * @param {object} props
  * @param {string} [props.apiBase] backend origin; defaults to same-origin
  * @param {string} [props.identity] client identity, must match the backend's
- * @param {string} [props.apiKey] shared secret sent as `x-dialer-key`
  * @param {{ text: string, listName: string, contacts?: object[], token: number }} [props.loadRequest]
  *   set by the parent (e.g. "Start campaign" on the Lists tab) to replace the
  *   dial list; `token` must change on every request so the same list can be
@@ -106,7 +105,6 @@ const OUTCOMES = [
 export default function DialerDevice({
   apiBase = '',
   identity = 'agent_1',
-  apiKey = '',
   loadRequest = null,
   contacts = [],
   onLegEnded,
@@ -218,8 +216,8 @@ export default function DialerDevice({
     phoneToContactRef.current = phoneToContact;
   }, [phoneToContact]);
 
-  /** Auth headers for the control plane. */
-  const authHeaders = useMemo(() => (apiKey ? { 'x-dialer-key': apiKey } : {}), [apiKey]);
+  // The browser session cookie is sent automatically on same-origin requests.
+  const authHeaders = useMemo(() => ({}), []);
 
   /** Append to the activity log, newest first, bounded. */
   const pushEvent = useCallback((level, message, detail) => {
@@ -723,9 +721,7 @@ export default function DialerDevice({
 
   useEffect(() => {
     const url = new URL(`${apiBase || window.location.origin}/api/events`);
-    if (apiKey) url.searchParams.set('key', apiKey);
-
-    // EventSource cannot send headers, so the key rides in the query string.
+    // EventSource sends the same-origin HttpOnly operator session cookie.
     const source = new EventSource(url.toString());
 
     /** @type {[string, (payload: any) => string][]} */
@@ -801,7 +797,7 @@ export default function DialerDevice({
       source.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- finishSession/onLegEnded intentionally not in the dep list: re-subscribing on every session start/stop would drop in-flight SSE frames.
-  }, [apiBase, apiKey, pushEvent]);
+  }, [apiBase, pushEvent]);
 
   // ─────────────────────────────────────────────────────────────── render ────
 
