@@ -16,9 +16,9 @@ import ContactsTab from './tabs/ContactsTab.jsx';
 import ListsTab from './tabs/ListsTab.jsx';
 import ReportsTab from './tabs/ReportsTab.jsx';
 import { parseContactsCsv, toE164 } from './lib/csv.js';
+import { selectCampaignContacts } from './lib/campaignSelection.js';
 
 const TABS = [
-  { key: 'home', label: 'Overview' },
   { key: 'campaigns', label: 'Campaigns' },
   { key: 'contacts', label: 'Contacts' },
   { key: 'lists', label: 'Lists' },
@@ -30,7 +30,9 @@ const newId = () => (crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${
 const THEME_STORAGE_KEY = 'a305-theme';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('home');
+  const [activeTab, setActiveTab] = useState('campaigns');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [selectedListIds, setSelectedListIds] = useState([]);
 
   // Dark is the shipped default (index.html's inline script already applied
   // a stored "light" preference before this ever runs, to avoid a flash of
@@ -122,6 +124,9 @@ export default function App() {
       setLists([]);
       setSessionHistory([]);
       setCallOutcomes([]);
+      setLoadRequest(null);
+      setSelectedListIds([]);
+      setSettingsOpen(false);
     } catch (err) {
       window.alert(err.message);
     }
@@ -155,8 +160,8 @@ export default function App() {
   }, [apiBase, authenticated]);
 
   const handleImport = useCallback(
-    async (csvText, name) => {
-      const { contacts: parsed } = parseContactsCsv(csvText);
+    async (csvText, name, phone1Column) => {
+      const { contacts: parsed } = parseContactsCsv(csvText, { phone1Column });
       const listId = newId();
       const withIds = parsed.map((c) => ({
         ...c,
@@ -166,7 +171,7 @@ export default function App() {
         listId,
         listName: name,
       }));
-      const dialableCount = withIds.filter((c) => c.phone1).length;
+      const dialableCount = withIds.filter((c) => /^\+[1-9]\d{6,14}$/.test(c.phone1)).length;
       const list = { id: listId, name, count: withIds.length, dialableCount, importedAt: Date.now() };
 
       try {
@@ -182,9 +187,11 @@ export default function App() {
         // the next reload silently dropped it.
         setContacts((prev) => [...prev, ...withIds]);
         setLists((prev) => [...prev, list]);
+        return true;
       } catch (err) {
         console.error('failed to import list', err);
         alert(`Import failed: ${err.message}. Check the browser console and Railway logs.`);
+        return false;
       }
     },
     [apiBase],
@@ -200,6 +207,7 @@ export default function App() {
 
         setLists((prev) => prev.filter((l) => l.id !== listId));
         setContacts((prev) => prev.filter((c) => c.listId !== listId));
+        setSelectedListIds((prev) => prev.filter((id) => id !== listId));
       } catch (err) {
         console.error('failed to delete list', err);
       }
@@ -207,19 +215,38 @@ export default function App() {
     [apiBase],
   );
 
+  const followUpPhones = useMemo(() => {
+    const latest = new Map();
+    for (const item of callOutcomes) if (item.phone) latest.set(item.phone, item.outcome);
+    return new Set([...latest].filter(([, outcome]) => ['callback', 'meaningful', 'email'].includes(outcome)).map(([phone]) => phone));
+  }, [callOutcomes]);
+
   const handleStartCampaign = useCallback(
-    (list) => {
-      const blocked = new Set(callOutcomes.filter((entry) => entry.outcome === 'do_not_call').map((entry) => entry.phone));
-      const listContacts = contacts.filter((c) => (list.id === 'follow-ups' ? followUpPhones.has(c.phone1) : c.listId === list.id)
-        && c.phone1 && !blocked.has(c.phone1) && !/^(do not call|dnc)$/i.test(c.status?.trim() ?? ''));
+    async (ids) => {
+      const active = await fetch(`${apiBase}/api/sessions`).then((response) => {
+        if (!response.ok) throw new Error('Could not check the active session.');
+        return response.json();
+      }).catch((error) => { window.alert(error.message); return null; });
+      if (!active) return;
+      if (active.sessions.some((entry) => ['DIALING', 'IN_CALL', 'PAUSED'].includes(entry.state))) {
+        window.alert('Stop or finish the active session before loading another list.');
+        return;
+      }
+      const selected = new Set(ids);
+      const listContacts = selectCampaignContacts(contacts, ids, callOutcomes, followUpPhones);
+      if (!listContacts.length) {
+        window.alert('No dialable numbers in the selected lists. Check the phone column in the original CSV and reimport it. Nothing was dialed.');
+        return;
+      }
       const numbers = listContacts.map((c) => c.phone1).join('\n');
       // The full records ride along too, keyed by phone1 in DialerDevice, so
       // a connected call can screen-pop the company/name instead of just the
       // number — see DialerDevice's `phoneToContact`.
-      setLoadRequest({ text: numbers, listName: list.name, contacts: listContacts, token: Date.now() });
+      const listName = selected.has('follow-ups') ? 'Warm follow-ups' : lists.filter((list) => selected.has(list.id)).map((list) => list.name).join(' + ');
+      setLoadRequest({ text: numbers, listName, contacts: listContacts, token: Date.now() });
       setActiveTab('campaigns');
     },
-    [contacts, callOutcomes],
+    [apiBase, contacts, callOutcomes, followUpPhones, lists],
   );
 
   const handleLegEnded = useCallback(({ phone, disposition, at }) => {
@@ -253,12 +280,10 @@ export default function App() {
     [apiBase],
   );
 
-  const dialableCount = useMemo(() => contacts.filter((c) => c.phone1).length, [contacts]);
-  const followUpPhones = useMemo(() => {
-    const latest = new Map();
-    for (const item of callOutcomes) if (item.phone) latest.set(item.phone, item.outcome);
-    return new Set([...latest].filter(([, outcome]) => ['callback', 'meaningful', 'email'].includes(outcome)).map(([phone]) => phone));
-  }, [callOutcomes]);
+  const dialableCount = useMemo(() => contacts.filter((c) => /^\+[1-9]\d{6,14}$/.test(c.phone1)).length, [contacts]);
+  const listDialableCounts = useMemo(() => new Map(lists.map((list) => [list.id,
+    contacts.filter((contact) => contact.listId === list.id && /^\+[1-9]\d{6,14}$/.test(contact.phone1)).length,
+  ])), [lists, contacts]);
 
   if (checkingAuth) return <main className="app"><p>Checking operator session…</p></main>;
   if (!authenticated) return (
@@ -290,6 +315,8 @@ export default function App() {
           </div>
           <div className="row">
             <span className="pill pill--muted">{dialableCount} dialable contacts</span>
+            <button type="button" className="btn btn--ghost settings-trigger" aria-label="Agent settings" title="Agent settings"
+              onClick={() => { setSettingsOpen(activeTab === 'campaigns' ? !settingsOpen : true); setActiveTab('campaigns'); }}>⚙</button>
             <button type="button" className="btn btn--ghost theme-toggle" onClick={toggleTheme}>
               {theme === 'dark' ? 'Light theme' : 'Dark theme'}
             </button>
@@ -312,30 +339,28 @@ export default function App() {
           ))}
         </nav>
 
-        {activeTab === 'home' && <div className="tab tab--overview">
-          <div className="overview__intro"><span className="operator-login__eyebrow">AGENT WORKSPACE</span><h2>Ready for your next session.</h2>
-            <p>Choose a list to load it into the power dialer. Review consent and local calling time before starting.</p></div>
-          <div className="overview__stats"><div className="panel"><span>Lists</span><strong>{lists.length}</strong></div>
-            <div className="panel"><span>Dialable contacts</span><strong>{dialableCount}</strong></div>
-            <div className="panel"><span>Warm follow-ups</span><strong>{followUpPhones.size}</strong></div></div>
-          {followUpPhones.size > 0 && <section className="panel"><div className="panel__head"><h3 className="panel__title">Follow-up queue</h3>
-            <button type="button" className="btn btn--primary" onClick={() => handleStartCampaign({ id: 'follow-ups', name: 'Warm follow-ups' })}>Load follow-ups</button></div>
-            <p className="idle__text">Latest outcome is Follow up, Meaningful conversation, or Send email. Loading does not start a call.</p></section>}
-          <ListsTab lists={lists} onStartCampaign={handleStartCampaign} onDelete={handleDeleteList} />
-        </div>}
-
         {/* Campaigns stays mounted across tab switches so a live call and its
             Device registration survive the agent checking Reports mid-shift. */}
         <div className="tab-panel" hidden={activeTab !== 'campaigns'}>
-          <DialerDevice
+          <div className="overview__stats"><div className="panel"><span>Lists</span><strong>{lists.length}</strong></div>
+            <div className="panel"><span>Dialable contacts</span><strong>{dialableCount}</strong></div>
+            <div className="panel"><span>Warm follow-ups</span><strong>{followUpPhones.size}</strong></div></div>
+          <div className="campaign-layout"><DialerDevice
             apiBase={apiBase}
             identity={identity}
+            settingsOpen={settingsOpen}
+            onCloseSettings={() => setSettingsOpen(false)}
             loadRequest={loadRequest}
             contacts={contacts}
             onLegEnded={handleLegEnded}
             onSessionEnded={handleSessionEnded}
             onOutcomeSaved={(outcome) => setCallOutcomes((prev) => [...prev, outcome])}
           />
+          <aside className="campaign-sidebar"><ListsTab lists={lists} selectedIds={selectedListIds} onSelectionChange={setSelectedListIds}
+            dialableCounts={listDialableCounts} onStartCampaign={handleStartCampaign} onDelete={handleDeleteList} compact />
+            {followUpPhones.size > 0 && <section className="panel"><h3 className="panel__title">Warm follow-ups</h3>
+              <p className="idle__text">Latest outcome: Follow up, Meaningful conversation, or Send email.</p>
+              <button type="button" className="btn" onClick={() => handleStartCampaign(['follow-ups'])}>Load follow-ups</button></section>}</aside></div>
         </div>
 
         {activeTab === 'contacts' && (
@@ -346,7 +371,8 @@ export default function App() {
 
         {activeTab === 'lists' && (
           <div className="tab-panel">
-            <ListsTab lists={lists} onStartCampaign={handleStartCampaign} onDelete={handleDeleteList} />
+            <ListsTab lists={lists} selectedIds={selectedListIds} onSelectionChange={setSelectedListIds}
+              dialableCounts={listDialableCounts} onStartCampaign={handleStartCampaign} onDelete={handleDeleteList} />
           </div>
         )}
 

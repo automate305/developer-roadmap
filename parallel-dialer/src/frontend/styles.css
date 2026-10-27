@@ -291,9 +291,8 @@ textarea:focus-visible {
 }
 
 .app { position: relative; z-index: 1; display: flex; justify-content: center; padding: 32px 16px 64px; }
-/* One wide column throughout — a call center tool is read top-to-bottom
-   within a tab, not split into competing panes. */
-.shell { width: 100%; max-width: 1180px; display: flex; flex-direction: column; gap: 17px; }
+/* Full-width operator workspace; Campaigns keeps a compact list rail. */
+.shell { width: 100%; max-width: none; display: flex; flex-direction: column; gap: 17px; }
 .mono { font-family: var(--mono); font-size: 0.92em; }
 
 /* ── tabs ───────────────────────────────────────────────────────────────── */
@@ -326,6 +325,19 @@ textarea:focus-visible {
 }
 
 .theme-toggle { border: 1px solid var(--line); border-radius: 99px; padding: 0 13px; }
+.settings-trigger { font-size: 19px; line-height: 1; min-width: 38px; }
+.campaign-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(270px, 340px); gap: 17px; align-items: start; }
+.campaign-layout > .tab--campaigns { min-width: 0; }
+.campaign-sidebar { display: flex; flex-direction: column; gap: 17px; min-width: 0; }
+.campaign-sidebar .panel__head { flex-wrap: wrap; }
+.connection-settings { border-top: 1px solid var(--line); padding-top: 16px; display: grid; gap: 12px; }
+.list-select-all { display: inline-flex; gap: 9px; align-items: center; color: var(--muted); font-size: 12px; }
+.list-cards { display: grid; gap: 10px; }
+.list-card { display: grid; gap: 5px; border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px; overflow-wrap: anywhere; }
+.list-card label { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; font-weight: 650; }
+.list-card small { color: var(--muted); }
+.list-card .btn { justify-self: start; }
+@media (max-width: 980px) { .campaign-layout { grid-template-columns: 1fr; } .campaign-sidebar { order: -1; } }
 
 /* Modelled on the OUTBOX .live-indicator pill. */
 .badge {
@@ -686,6 +698,11 @@ textarea:focus-visible {
 .sheet__table tr:last-child td { border-bottom: 0; }
 .sheet__table tbody tr:hover td { background: var(--chip-bg); }
 .sheet__ellipsis { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.sheet__table--contacts { table-layout: fixed; }
+.sheet__table--contacts th { position: relative; overflow: visible; }
+.sheet__table--contacts td { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.column-resizer { position: absolute; right: 0; top: 0; bottom: 0; width: 10px; border: 0; background: transparent; cursor: col-resize; touch-action: none; }
+.column-resizer::after { content: ''; position: absolute; right: 3px; top: 25%; height: 50%; border-right: 1px solid var(--muted); }
 .sheet__empty { text-align: center; color: var(--faint); padding: 22px 12px !important; }
 .sheet__table--lists td, .sheet__table--reports td { white-space: normal; }
 

@@ -66,7 +66,7 @@ const FIELD_ALIASES = {
   title: ['title', 'job_title', 'role', 'position'],
   email: ['email', 'e_mail', 'email_address', 'verified_email'],
   // phone1 is the cell — the number the dialer actually calls.
-  phone1: ['phone1', 'phone_1', 'cell', 'cellphone', 'cell_phone', 'mobile', 'mobile_phone', 'phone'],
+  phone1: ['phone1', 'phone_1', 'cell', 'cellphone', 'cell_phone', 'mobile', 'mobile_phone', 'mobile_number', 'phone_number', 'contact_phone', 'telephone', 'direct_phone', 'phone'],
   phone2: ['phone2', 'phone_2', 'office', 'office_phone', 'work_phone', 'landline', 'direct_dial'],
   companyUrl: ['company_url', 'company_website', 'website', 'domain', 'url'],
   linkedin: ['linkedin', 'linkedin_url', 'li_url', 'personal_linkedin'],
@@ -104,12 +104,13 @@ export function matchColumns(headers) {
  * rejected — a list with extra Apollo columns should still import cleanly.
  * @returns {{ contacts: object[], matched: string[], rowCount: number }}
  */
-export function parseContactsCsv(text) {
+export function parseContactsCsv(text, { phone1Column } = {}) {
   const rows = parseCsv(text.trim());
-  if (rows.length === 0) return { contacts: [], matched: [], rowCount: 0 };
+  if (rows.length === 0) return { contacts: [], matched: [], rowCount: 0, headers: [] };
 
   const [header, ...body] = rows;
   const mapping = matchColumns(header);
+  if (Number.isInteger(phone1Column) && phone1Column >= 0 && phone1Column < header.length) mapping.phone1 = phone1Column;
   const cell = (row, field) => (mapping[field] !== undefined ? (row[mapping[field]] ?? '').trim() : '');
 
   const contacts = body
@@ -128,7 +129,7 @@ export function parseContactsCsv(text) {
       status: cell(row, 'status') || 'New',
     }));
 
-  return { contacts, matched: Object.keys(mapping), rowCount: body.length };
+  return { contacts, matched: Object.keys(mapping), rowCount: body.length, headers: header };
 }
 
 /**
