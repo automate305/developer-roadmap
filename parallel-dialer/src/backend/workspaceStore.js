@@ -6,7 +6,7 @@
  * it on a server restart" or "share it across a browser that isn't this one".
  * This is the backend half of closing that gap.
  *
- * Storage is three whole-file JSON documents under `dataDir`, loaded into
+ * Storage is four whole-file JSON documents under `dataDir`, loaded into
  * memory on boot and rewritten (temp file + rename, so a crash mid-write
  * never leaves a half-written file behind) on every mutation. No database:
  * this project has none today, and pilot-scale data (hundreds of contacts)
@@ -61,7 +61,7 @@ export class WorkspaceStore {
     this.tail = Promise.resolve();
   }
 
-  /** Read all three files into memory. Call once before serving traffic. */
+  /** Read all four files into memory. Call once before serving traffic. */
   async load() {
     [this.contacts, this.lists, this.sessionHistory, this.callOutcomes] = await Promise.all([
       readJsonFile(this.contactsPath, []),

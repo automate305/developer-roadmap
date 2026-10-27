@@ -1,8 +1,8 @@
 /**
  * routes/workspace.js — Contacts, Lists, Session History and agent-logged
- * call outcomes. Unlike routes/api.js, nothing here touches the live dialer
- * engine; this is the persistence surface that used to be the browser's
- * localStorage only (see AGENTS.md and workspaceStore.js).
+ * call outcomes. This is the persistence surface that used to be the browser's
+ * localStorage only (see AGENTS.md and workspaceStore.js). A saved DNC outcome
+ * also removes matching future leads from the live engine queue.
  */
 import express from 'express';
 
@@ -16,8 +16,7 @@ const log = logger.child({ module: 'routes/workspace' });
  * @param {import('../workspaceStore.js').WorkspaceStore} deps.store
  * @param {import('../callActivityQueue.js').CallActivityQueue|null} [deps.outcomeQueue]
  *   Enqueues HubSpot writes for agent-logged outcomes. `null` when HubSpot
- *   isn't configured — outcomes are then accepted but only ever persisted
- *   nowhere but the agent's own screen, same as today.
+ *   isn't configured — outcomes still persist in the workspace store.
  */
 export function createWorkspaceRouter({ store, outcomeQueue = null, engine = null, auth = createOperatorAuth() }) {
   const router = express.Router();
