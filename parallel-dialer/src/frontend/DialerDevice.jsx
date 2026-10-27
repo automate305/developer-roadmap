@@ -109,6 +109,8 @@ export default function DialerDevice({
   apiBase = '',
   identity = 'agent_1',
   loadRequest = null,
+  settingsOpen = false,
+  onCloseSettings,
   contacts = [],
   onLegEnded,
   onSessionEnded,
@@ -197,7 +199,7 @@ export default function DialerDevice({
   // this side of the bridge.
   const connectedLegRef = useRef(null);
 
-  // A list handed over from the Lists tab replaces the dial list. `token`
+  // A list handed over from the Lists tab replaces the loaded queue. `token`
   // changes on every request so re-sending the same list still applies.
   useEffect(() => {
     if (!loadRequest) return;
@@ -208,8 +210,7 @@ export default function DialerDevice({
 
   // phone (E.164) → contact record, for attaching name/company to a lead
   // before dialing and for screen-popping a connected call. The active
-  // list's own records win; contacts on file elsewhere are the fallback for
-  // a freeform-pasted number that happens to already be a known contact.
+  // list's own records win; contacts on file elsewhere are the fallback.
   const phoneToContact = useMemo(() => {
     const map = new Map();
     for (const c of contacts) if (c.phone1) map.set(c.phone1, c);
@@ -674,6 +675,9 @@ export default function DialerDevice({
       meetingsBookedRef.current = 0;
       setBatchLegs([]);
       setCurrentLead(null);
+      setLeadsText('');
+      setActiveListName(null);
+      setActiveListContacts([]);
     },
     [onSessionEnded],
   );
@@ -903,7 +907,13 @@ export default function DialerDevice({
             Auto-answer connected leads
           </label>
         </div>
-        <AudioCheck bridgeMode={bridgeMode} />
+        {settingsOpen && <div className="connection-settings">
+          <div className="panel__head"><h3 className="panel__title">Agent settings</h3>
+            <button type="button" className="btn btn--ghost" onClick={onCloseSettings}>Close settings</button></div>
+          <p className="idle__text">{bridgeMode ? 'SignalWire phone bridge: calls ring on the configured agent phone. Browser audio is diagnostic only.'
+            : 'Audio check is for this browser. Phone bridge destination and caller ID are configured on the server.'}</p>
+          <AudioCheck bridgeMode={bridgeMode} />
+        </div>}
       </section>
 
       {/* Promoted out of the Dial list panel so the numbers that matter mid-
@@ -1079,20 +1089,11 @@ export default function DialerDevice({
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Dial list</h2>
+          <h2 className="panel__title">Selected lists</h2>
           {activeListName && <span className="pill">{activeListName}</span>}
         </div>
-        <textarea
-          className="textarea mono"
-          rows={5}
-          placeholder={'+13055550123\n+17865550188\n+19545550142'}
-          value={leadsText}
-          onChange={(e) => {
-            setLeadsText(e.target.value);
-            setActiveListName(null);
-          }}
-          disabled={Boolean(session)}
-        />
+        <p className="idle__text">{activeListName ? `${leadsText.split('\n').filter(Boolean).length} unique number(s) ready. Loading does not place a call.`
+          : 'Select one or more dialable lists in the sidebar or Lists tab, then load them here.'}</p>
         <div className="modes" role="group" aria-label="Dialing mode">
           <button
             type="button"
@@ -1132,7 +1133,7 @@ export default function DialerDevice({
             type="button"
             className="btn btn--primary"
             onClick={startSession}
-            disabled={!online || starting || Boolean(session)}
+            disabled={!online || starting || Boolean(session) || !leadsText.trim()}
           >
             {starting ? 'Starting…' : 'Start dialing'}
           </button>
@@ -1165,8 +1166,7 @@ export default function DialerDevice({
 }
 
 /** The screen-pop: company/name when the number matches a known contact,
- * the bare phone number when it doesn't (a freeform-pasted lead, or one from
- * before this list was ever imported). */
+ * the bare phone number when it doesn't. */
 function ProspectPop({ info }) {
   if (!info) return <p className="mono outcome__number">—</p>;
   if (!info.company && !info.name) {
@@ -1208,11 +1208,13 @@ function AudioCheck({ bridgeMode }) {
   const [level, setLevel] = useState(0);
   const [message, setMessage] = useState('Run a check to allow the microphone and see the available devices.');
   const stopRef = useRef(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => () => stopRef.current?.(), []);
 
   async function checkMic(deviceId = micId) {
     stopRef.current?.();
+    setTesting(false);
     if (!navigator.mediaDevices?.getUserMedia) {
       setMessage('This browser does not support microphone testing.');
       return;
@@ -1232,6 +1234,7 @@ function AudioCheck({ bridgeMode }) {
         setLevel(Math.min(1, bins.reduce((sum, n) => sum + n, 0) / bins.length / 80));
       }, 100);
       stopRef.current = () => { clearInterval(timer); stream.getTracks().forEach((track) => track.stop()); context.close().catch(() => {}); setLevel(0); };
+      setTesting(true);
       setMessage(bridgeMode ? 'Browser mic test only — your phone carries live calls.' : 'Speak to check the browser microphone.');
     } catch (err) {
       setMessage(`Microphone unavailable: ${err.message}`);
@@ -1257,6 +1260,7 @@ function AudioCheck({ bridgeMode }) {
     <div className="audio-check__top"><strong>Browser audio check</strong><span>{bridgeMode ? 'Diagnostics only · calls on phone' : 'Check before dialing'}</span></div>
     <div className="row">
       <button type="button" className="btn" onClick={() => checkMic()}>Test microphone</button>
+      {testing && <button type="button" className="btn" onClick={() => { stopRef.current?.(); stopRef.current = null; setTesting(false); setMessage('Microphone test stopped.'); }}>Stop test</button>}
       <button type="button" className="btn" onClick={testSpeaker}>Play test tone</button>
     </div>
     {inputs.length > 0 && <label className="field">Microphone

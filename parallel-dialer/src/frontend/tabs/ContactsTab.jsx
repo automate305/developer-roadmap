@@ -6,11 +6,11 @@
  * list came from Sheets or Apollo's own export preview.
  */
 import { useMemo, useRef, useState } from 'react';
-import { parseContactsCsv } from '../lib/csv.js';
+import { parseContactsCsv, toE164 } from '../lib/csv.js';
 
 const SAMPLE_CSV =
   'company,first_name,last_name,title,email,phone1,phone2,company_url,linkedin,signal,status\n' +
-  'Brickell Air & Heat,Marcus,Reyes,Owner,marcus@brickellair.com,+13055550142,+13055550100,brickellair.com,linkedin.com/in/marcusreyes,New Google review this week,New';
+  'Example Company,Test,Contact,Owner,test@example.invalid,+1XXXXXXXXXX,,example.invalid,,Sample note,New';
 
 const COLUMNS = [
   { key: 'company', label: 'Company', width: 168 },
@@ -39,25 +39,43 @@ export default function ContactsTab({ contacts, lists, onImport, callHistory }) 
   const [fileName, setFileName] = useState('');
   const [listFilter, setListFilter] = useState('all');
   const [query, setQuery] = useState('');
+  const [phoneColumn, setPhoneColumn] = useState('');
+  const [columnWidths, setColumnWidths] = useState(() => COLUMNS.map((column) => column.width));
   const fileRef = useRef(null);
 
   const handleFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setFileName(file.name);
+    setPhoneColumn('');
     const reader = new FileReader();
     reader.onload = () => setPasted(String(reader.result ?? ''));
     reader.readAsText(file);
   };
 
-  const preview = useMemo(() => (pasted.trim() ? parseContactsCsv(pasted) : null), [pasted]);
+  const preview = useMemo(() => (pasted.trim() ? parseContactsCsv(pasted, { phone1Column: phoneColumn === '' ? undefined : Number(phoneColumn) }) : null), [pasted, phoneColumn]);
+  const previewDialable = preview?.contacts.filter((contact) => /^\+[1-9]\d{6,14}$/.test(toE164(contact.phone1))).length ?? 0;
 
-  const doImport = () => {
+  function startResize(event, index) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const initial = columnWidths[index];
+    const move = (pointer) => setColumnWidths((current) => current.map((width, column) => column === index
+      ? Math.max(72, initial + pointer.clientX - startX) : width));
+    const stop = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', stop); window.removeEventListener('pointercancel', stop); };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', stop, { once: true });
+    window.addEventListener('pointercancel', stop, { once: true });
+  }
+
+  const doImport = async () => {
     if (!pasted.trim()) return;
     const name = fileName || `Pasted list — ${new Date().toLocaleDateString()}`;
-    onImport(pasted, name);
+    const saved = await onImport(pasted, name, phoneColumn === '' ? undefined : Number(phoneColumn));
+    if (!saved) return;
     setPasted('');
     setFileName('');
+    setPhoneColumn('');
     if (fileRef.current) fileRef.current.value = '';
   };
 
@@ -110,10 +128,17 @@ export default function ContactsTab({ contacts, lists, onImport, callHistory }) 
               onChange={(e) => {
                 setPasted(e.target.value);
                 setFileName('');
+                setPhoneColumn('');
               }}
             />
           </label>
 
+          {preview && <label className="field">Phone column
+            <select className="select" value={phoneColumn} onChange={(event) => setPhoneColumn(event.target.value)}>
+              <option value="">Auto-detect</option>
+              {preview.headers.map((header, index) => <option key={index} value={index}>{header || `Column ${index + 1}`}</option>)}
+            </select>
+          </label>}
           <p className="import__hint">
             Headers match automatically. Recognized columns: company, first/last name, title, email, cell (phone1),
             phone2, company URL, LinkedIn, signal, status.
@@ -136,8 +161,11 @@ export default function ContactsTab({ contacts, lists, onImport, callHistory }) 
               </tr>)}</tbody></table>
           </div>}
           {preview && <p className="import__hint">Previewing {Math.min(5, preview.contacts.length)} of {preview.contacts.length} contacts. Review the phone column before importing.</p>}
+          {preview && <p className={previewDialable ? 'import__hint' : 'alert alert--error'} role={previewDialable ? undefined : 'alert'}>
+            {previewDialable} dialable numbers detected. {previewDialable === 0 && 'Select the correct phone column above. Import is paused so this does not create another unusable list.'}
+          </p>}
 
-          <button type="button" className="btn btn--primary btn--block" onClick={doImport} disabled={!pasted.trim()}>
+          <button type="button" className="btn btn--primary btn--block" onClick={doImport} disabled={!pasted.trim() || !previewDialable}>
             Import contacts
           </button>
         </div>
@@ -167,12 +195,18 @@ export default function ContactsTab({ contacts, lists, onImport, callHistory }) 
           </div>
 
           <div className="sheet">
-            <table className="sheet__table">
+            <table className="sheet__table sheet__table--contacts" style={{ width: columnWidths.reduce((sum, width) => sum + width, 0) }}>
+              <colgroup>{COLUMNS.map((column, index) => <col key={column.key} style={{ width: columnWidths[index] }} />)}</colgroup>
               <thead>
                 <tr>
-                  {COLUMNS.map((col) => (
-                    <th key={col.key} style={{ minWidth: col.width }}>
-                      {col.label}
+                  {COLUMNS.map((col, index) => (
+                    <th key={col.key}>
+                      {col.label}<button type="button" className="column-resizer" aria-label={`Resize ${col.label} column`}
+                        onPointerDown={(event) => startResize(event, index)}
+                        onKeyDown={(event) => { if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                          event.preventDefault(); setColumnWidths((current) => current.map((width, at) => at === index
+                            ? Math.max(72, width + (event.key === 'ArrowRight' ? 16 : -16)) : width));
+                        } }} />
                     </th>
                   ))}
                 </tr>
