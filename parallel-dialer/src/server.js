@@ -85,8 +85,8 @@ export function createApp({
 
   // ── Control plane + Twilio voice webhooks ────────────────────────────────
   const auth = createOperatorAuth();
-  app.use('/api', createApiRouter({ engine, auth }));
-  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, auth }));
+  app.use('/api', createApiRouter({ engine, store, auth }));
+  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, engine, auth }));
   app.use('/twiml', createTwimlRouter({ engine }));
 
   // Convenience alias so infrastructure health checks need no /api prefix.

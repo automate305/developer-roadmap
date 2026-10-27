@@ -70,6 +70,15 @@ call in power-dial mode by making it hang up; a wrong verdict there would drop
 a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
 on the winner claim: Twilio re-delivers status callbacks.
 
+After a connected power-dial leg ends, the session enters `PAUSED` and does
+not place the next call until the operator saves an outcome and calls the
+resume endpoint. Failed/no-answer legs still auto-advance. Keep this server-side;
+a frontend-only pause would not prevent an outbound call.
+
+SignalWire phone-bridge mode routes audio to `AGENT_PHONE_NUMBER`, not the
+browser. A browser mic test is only a device diagnostic. Do not label it live
+call audio or expose browser mute/keypad as functional phone-bridge controls.
+
 ## Frontend tabs and where their data lives
 
 The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,

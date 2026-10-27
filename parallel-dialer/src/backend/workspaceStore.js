@@ -49,10 +49,12 @@ export class WorkspaceStore {
     this.contactsPath = path.join(dataDir, 'contacts.json');
     this.listsPath = path.join(dataDir, 'lists.json');
     this.sessionHistoryPath = path.join(dataDir, 'session-history.json');
+    this.callOutcomesPath = path.join(dataDir, 'call-outcomes.json');
 
     this.contacts = [];
     this.lists = [];
     this.sessionHistory = [];
+    this.callOutcomes = [];
     this.loaded = false;
 
     /** Serialises every mutation's write. */
@@ -61,10 +63,11 @@ export class WorkspaceStore {
 
   /** Read all three files into memory. Call once before serving traffic. */
   async load() {
-    [this.contacts, this.lists, this.sessionHistory] = await Promise.all([
+    [this.contacts, this.lists, this.sessionHistory, this.callOutcomes] = await Promise.all([
       readJsonFile(this.contactsPath, []),
       readJsonFile(this.listsPath, []),
       readJsonFile(this.sessionHistoryPath, []),
+      readJsonFile(this.callOutcomesPath, []),
     ]);
     this.loaded = true;
     log.info('workspace store loaded', {
@@ -76,7 +79,13 @@ export class WorkspaceStore {
 
   /** Snapshot of everything the workstation needs on first paint. */
   getState() {
-    return { contacts: this.contacts, lists: this.lists, sessionHistory: this.sessionHistory };
+    return { contacts: this.contacts, lists: this.lists, sessionHistory: this.sessionHistory, callOutcomes: this.callOutcomes };
+  }
+
+  isDoNotCall(phone) {
+    const contact = this.contacts.find((entry) => entry.phone1 === phone || entry.phone2 === phone);
+    if (/^(do not call|dnc)$/i.test(contact?.status?.trim() ?? '')) return true;
+    return this.callOutcomes.some((entry) => entry.phone === phone && entry.outcome === 'do_not_call');
   }
 
   /**
@@ -114,12 +123,21 @@ export class WorkspaceStore {
     return summary;
   }
 
-  /** @param {...('contacts'|'lists'|'sessionHistory')} keys */
+  /** Keep the operator's outcome and notes even when no CRM is configured. */
+  async appendCallOutcome(outcome) {
+    if (!outcome?.callSid || !outcome?.outcome) throw new Error('call SID and outcome required');
+    this.callOutcomes = [...this.callOutcomes, outcome];
+    await this.#persist('callOutcomes');
+    return outcome;
+  }
+
+  /** @param {...('contacts'|'lists'|'sessionHistory'|'callOutcomes')} keys */
   async #persist(...keys) {
     const writers = {
       contacts: () => writeJsonFileAtomic(this.contactsPath, this.contacts),
       lists: () => writeJsonFileAtomic(this.listsPath, this.lists),
       sessionHistory: () => writeJsonFileAtomic(this.sessionHistoryPath, this.sessionHistory),
+      callOutcomes: () => writeJsonFileAtomic(this.callOutcomesPath, this.callOutcomes),
     };
     const job = () => Promise.all(keys.map((key) => writers[key]()));
     // Chain onto the tail so overlapping mutations serialise instead of

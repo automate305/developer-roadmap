@@ -27,7 +27,7 @@ describe('WorkspaceStore', () => {
   it('starts empty when no files exist yet', async () => {
     const store = new WorkspaceStore({ dataDir });
     await store.load();
-    assert.deepEqual(store.getState(), { contacts: [], lists: [], sessionHistory: [] });
+    assert.deepEqual(store.getState(), { contacts: [], lists: [], sessionHistory: [], callOutcomes: [] });
   });
 
   it('importList persists both the list and its contacts', async () => {
@@ -101,6 +101,25 @@ describe('WorkspaceStore', () => {
     const reloaded = new WorkspaceStore({ dataDir });
     await reloaded.load();
     assert.deepEqual(reloaded.getState().sessionHistory.map((s) => s.id), ['session-1', 'session-2']);
+  });
+
+  it('persists call outcomes and notes across a restart without a CRM', async () => {
+    const store = new WorkspaceStore({ dataDir });
+    await store.load();
+    await store.appendCallOutcome({ callSid: 'test-call', outcome: 'callback', notes: 'Call Tuesday', phone: '+13055550100' });
+    const reloaded = new WorkspaceStore({ dataDir });
+    await reloaded.load();
+    assert.equal(reloaded.getState().callOutcomes[0].notes, 'Call Tuesday');
+  });
+
+  it('recognizes a saved DNC outcome on subsequent sessions', async () => {
+    const store = new WorkspaceStore({ dataDir });
+    await store.load();
+    await store.appendCallOutcome({ callSid: 'test-call', outcome: 'do_not_call', phone: '+13055550100' });
+    assert.equal(store.isDoNotCall('+13055550100'), true);
+    const reloaded = new WorkspaceStore({ dataDir });
+    await reloaded.load();
+    assert.equal(reloaded.isDoNotCall('+13055550100'), true);
   });
 
   it('serialises overlapping writes instead of one clobbering the other', async () => {
