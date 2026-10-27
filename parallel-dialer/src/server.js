@@ -276,7 +276,7 @@ export async function start() {
 
   log.info('parallel dialer listening', {
     port: config.port,
-    voiceProvider: config.voiceProvider,
+    telephonyProvider: config.telephony.provider,
     publicBaseUrl: config.publicBaseUrl,
     mediaStreamUrl: `${config.publicWsUrl}/media-stream`,
     batchSize: config.dialer.batchSize,
