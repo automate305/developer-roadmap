@@ -627,8 +627,9 @@ export default function DialerDevice({
             connectedAt: active.startedAt }),
         });
         if (!response.ok) throw new Error(`save failed (${response.status})`);
-        onOutcomeSaved?.({ callSid: active.callSid, outcome: outcomeKey, notes, phone: active.from, savedAt: Date.now() });
-        if (outcomeKey === 'meeting') {
+        const result = await response.json();
+        if (result.created) onOutcomeSaved?.({ callSid: active.callSid, outcome: outcomeKey, notes, phone: active.from, savedAt: Date.now() });
+        if (result.created && outcomeKey === 'meeting') {
           meetingsBookedRef.current += 1;
           setMeetingsBooked(meetingsBookedRef.current);
         }

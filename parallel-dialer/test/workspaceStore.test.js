@@ -112,6 +112,21 @@ describe('WorkspaceStore', () => {
     assert.equal(reloaded.getState().callOutcomes[0].notes, 'Call Tuesday');
   });
 
+  it('saves an outcome only once when the operator retries after a lost response', async () => {
+    const store = new WorkspaceStore({ dataDir });
+    await store.load();
+    const outcome = { callSid: 'CA-owned-test', outcome: 'meeting', notes: 'Booked', phone: '+13055550100' };
+    const [first, retry] = await Promise.all([
+      store.appendCallOutcome(outcome), store.appendCallOutcome({ ...outcome, savedAt: Date.now() }),
+    ]);
+    assert.equal(first.created, true);
+    assert.equal(retry.created, false);
+    assert.equal(store.getState().callOutcomes.length, 1);
+    const reloaded = new WorkspaceStore({ dataDir });
+    await reloaded.load();
+    assert.equal(reloaded.getState().callOutcomes.length, 1);
+  });
+
   it('recognizes a saved DNC outcome on subsequent sessions', async () => {
     const store = new WorkspaceStore({ dataDir });
     await store.load();

@@ -11,14 +11,24 @@ const key = 'test-operator-key';
 let server;
 let base;
 let activeSessions = [];
+let savedOutcome = null;
+let crmEnqueues = 0;
 
 before(async () => {
   const auth = createOperatorAuth({ key, publicBaseUrl: 'http://localhost:5173' });
   const engine = { listSessions: () => activeSessions, snapshotSession: () => null };
-  const store = { getState: () => ({ contacts: [], lists: [], sessionHistory: [] }) };
+  const store = {
+    getState: () => ({ contacts: [], lists: [], sessionHistory: [] }),
+    async appendCallOutcome(outcome) {
+      if (savedOutcome) return { saved: savedOutcome, created: false };
+      savedOutcome = outcome;
+      return { saved: outcome, created: true };
+    },
+  };
+  const outcomeQueue = { enqueue: () => { crmEnqueues += 1; return true; } };
   const app = express();
   app.use('/api', createApiRouter({ engine, auth }));
-  app.use('/api/workspace', createWorkspaceRouter({ store, auth }));
+  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, auth }));
   server = http.createServer(app);
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   base = `http://127.0.0.1:${server.address().port}`;
@@ -84,4 +94,21 @@ test('a second active dialing session is rejected before placing a call', async 
   } finally {
     activeSessions = [];
   }
+});
+
+test('retrying a saved outcome does not queue a duplicate CRM update', async () => {
+  const payload = { callSid: 'CA-owned-test', outcome: 'meeting', notes: 'Booked' };
+  const request = (body) => fetch(base + '/api/workspace/outcomes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-dialer-key': key }, body: JSON.stringify(body),
+  });
+  const first = await request(payload);
+  assert.equal(first.status, 201);
+  assert.equal((await first.json()).created, true);
+  const retry = await request(payload);
+  assert.equal(retry.status, 200);
+  assert.equal((await retry.json()).created, false);
+  assert.equal(crmEnqueues, 1);
+  const conflicting = await request({ ...payload, outcome: 'do_not_call' });
+  assert.equal(conflicting.status, 409);
+  assert.equal(crmEnqueues, 1);
 });

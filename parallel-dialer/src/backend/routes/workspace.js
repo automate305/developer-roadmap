@@ -84,14 +84,17 @@ export function createWorkspaceRouter({ store, outcomeQueue = null, engine = nul
     }
 
     try {
-      const saved = await store.appendCallOutcome({
+      const { saved, created } = await store.appendCallOutcome({
         callSid: String(callSid), outcome, notes: String(notes ?? '').slice(0, 10000),
         phone: String(phone ?? ''), durationSeconds: Number(durationSeconds) || 0,
         connectedAt: Number(connectedAt) || null, savedAt: Date.now(),
       });
-      if (outcome === 'do_not_call' && saved.phone) engine?.suppressPhone(saved.phone);
-      const crmQueued = outcomeQueue ? outcomeQueue.enqueue({ callSid, outcome, notes: saved.notes }) : false;
-      return res.status(201).json({ saved: true, crmQueued });
+      if (saved.outcome !== outcome || saved.notes !== String(notes ?? '').slice(0, 10000)) {
+        return res.status(409).json({ error: 'outcome_already_saved' });
+      }
+      if (created && outcome === 'do_not_call' && saved.phone) engine?.suppressPhone(saved.phone);
+      const crmQueued = created && outcomeQueue ? outcomeQueue.enqueue({ callSid, outcome, notes: saved.notes }) : false;
+      return res.status(created ? 201 : 200).json({ saved: true, created, crmQueued });
     } catch (err) {
       log.error('failed to persist call outcome', { err });
       return res.status(500).json({ error: 'outcome_save_failed' });

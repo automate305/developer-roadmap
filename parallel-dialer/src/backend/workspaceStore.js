@@ -126,9 +126,14 @@ export class WorkspaceStore {
   /** Keep the operator's outcome and notes even when no CRM is configured. */
   async appendCallOutcome(outcome) {
     if (!outcome?.callSid || !outcome?.outcome) throw new Error('call SID and outcome required');
+    const existing = this.callOutcomes.find((entry) => entry.callSid === outcome.callSid);
+    if (existing) {
+      await this.tail; // A retry must not report success before the first save reaches disk.
+      return { saved: existing, created: false };
+    }
     this.callOutcomes = [...this.callOutcomes, outcome];
     await this.#persist('callOutcomes');
-    return outcome;
+    return { saved: outcome, created: true };
   }
 
   /** @param {...('contacts'|'lists'|'sessionHistory'|'callOutcomes')} keys */
