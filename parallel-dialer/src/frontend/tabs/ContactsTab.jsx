@@ -128,6 +128,15 @@ export default function ContactsTab({ contacts, lists, onImport, callHistory }) 
             )}
           </p>
 
+          {preview && preview.contacts.length > 0 && <div className="sheet import__preview">
+            <table className="sheet__table"><thead><tr><th>Company</th><th>Name</th><th>Phone</th><th>Email</th><th>Status</th></tr></thead>
+              <tbody>{preview.contacts.slice(0, 5).map((c, index) => <tr key={index}>
+                <td>{c.company || '—'}</td><td>{[c.firstName, c.lastName].filter(Boolean).join(' ') || '—'}</td>
+                <td className="mono">{c.phone1 || '—'}</td><td>{c.email || '—'}</td><td>{c.status}</td>
+              </tr>)}</tbody></table>
+          </div>}
+          {preview && <p className="import__hint">Previewing {Math.min(5, preview.contacts.length)} of {preview.contacts.length} contacts. Review the phone column before importing.</p>}
+
           <button type="button" className="btn btn--primary btn--block" onClick={doImport} disabled={!pasted.trim()}>
             Import contacts
           </button>

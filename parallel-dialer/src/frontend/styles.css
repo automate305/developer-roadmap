@@ -146,6 +146,17 @@
 .operator-login .field { display: flex; flex-direction: column; gap: 6px; color: var(--text); }
 .operator-login .field input { width: 100%; }
 .operator-login .operator-login__error { color: var(--bad-text); }
+.app--login { background: radial-gradient(circle at 50% 50%, #52227138, transparent 48%), #0c0911; }
+.operator-login { width: min(520px, calc(100vw - 32px)); padding: 42px; gap: 19px; background: #1b1425; border-color: #3a2949; box-shadow: 0 35px 90px #0008; border-radius: 22px; }
+.operator-login__brand { display: flex; align-items: center; gap: 5px; margin-bottom: 24px; color: #f7f5fb; font-size: 12px; font-weight: 850; letter-spacing: 3px; }
+.operator-login__brand em { color: #a65cf7; font-style: normal; }
+.operator-login__dot { width: 11px; height: 11px; margin-right: 4px; border-radius: 50%; background: #a65cf7; box-shadow: 0 0 20px #a65cf7; }
+.operator-login .operator-login__eyebrow { color: #a289b9; letter-spacing: 2px; }
+.operator-login h1 { color: #f7f5fb; font-size: 48px; letter-spacing: -2px; }
+.operator-login p { color: #aca1b8; font-size: 14px; line-height: 1.6; }
+.operator-login .field { color: #aaa0b4; margin-top: 10px; }
+.operator-login .field input { min-height: 58px; border-radius: 12px; background: #110d17; color: #fff; border-color: #492c61; }
+.operator-login .btn--primary { min-height: 56px; font-size: 14px; border-radius: 12px; background: linear-gradient(110deg, #8d43e7, #ae3df0); }
 
 /* ── Light theme override — every token the dark :root above sets, so
    toggling can never leave a dark shade mixed into the light shell. ────── */
@@ -411,6 +422,24 @@ textarea:focus-visible {
 .prospect__meta { margin: 3px 0 0; display: flex; align-items: baseline; gap: 9px; color: var(--faint); }
 .prospect__name { font-size: 13px; font-weight: 650; color: var(--stat); }
 .prospect__phone { font-size: 12px; }
+.prospect__detail { margin: 5px 0 0; color: var(--muted); font-size: 12px; }
+.bridge-notice { margin: 0; padding: 11px 14px; border: 1px solid var(--warn-line); border-radius: 9px; color: var(--warn-text); background: var(--warn-bg); font-size: 12px; line-height: 1.5; }
+.audio-check { border-top: 1px solid var(--line); padding-top: 14px; display: grid; gap: 11px; }
+.audio-check__top { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.audio-check__top span, .audio-check__message { color: var(--muted); font-size: 11px; margin: 0; }
+.audio-check .field { width: min(360px, 100%); }
+.dial-pad { display: grid; grid-template-columns: repeat(3, 54px); gap: 7px; }
+.dial-pad__key { width: 54px; height: 44px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); color: var(--text); font-size: 19px; cursor: pointer; }
+.dial-pad__key:disabled { opacity: .45; cursor: not-allowed; }
+.import__preview { max-height: 300px; }
+.reports__filters { gap: 12px; align-items: end; }
+.reports__filters .field input { width: 150px; }
+.overview__intro h2 { margin: 10px 0 6px; font-size: clamp(27px, 3vw, 40px); letter-spacing: -1.4px; }
+.overview__intro p { color: var(--muted); font-size: 13px; }
+.overview__stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.overview__stats .panel span { color: var(--muted); font-size: 11px; }
+.overview__stats .panel strong { color: var(--text); font-size: 27px; }
+@media (max-width: 620px) { .overview__stats { grid-template-columns: 1fr; } .operator-login { padding: 26px; } }
 
 .panel--metrics { border-color: var(--purple-soft); }
 

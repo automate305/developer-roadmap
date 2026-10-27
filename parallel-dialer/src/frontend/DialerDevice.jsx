@@ -80,7 +80,10 @@ function legPhase(leg) {
 const OUTCOMES = [
   { key: 'meeting', label: 'Meeting booked', tone: 'good' },
   { key: 'callback', label: 'Follow up' },
+  { key: 'meaningful', label: 'Meaningful conversation' },
+  { key: 'email', label: 'Send email' },
   { key: 'not_interested', label: 'Not interested' },
+  { key: 'do_not_call', label: 'Do not call' },
 ];
 
 /**
@@ -109,6 +112,7 @@ export default function DialerDevice({
   contacts = [],
   onLegEnded,
   onSessionEnded,
+  onOutcomeSaved,
 }) {
   const [status, setStatus] = useState(AgentStatus.OFFLINE);
   const [error, setError] = useState(null);
@@ -119,6 +123,9 @@ export default function DialerDevice({
   const [lastEndedCall, setLastEndedCall] = useState(null);
   const [inputLevel, setInputLevel] = useState(0);
   const [outputLevel, setOutputLevel] = useState(0);
+  const [bridgeMode, setBridgeMode] = useState(false);
+  const [savingOutcome, setSavingOutcome] = useState(false);
+  const [currentLead, setCurrentLead] = useState(null);
   const [events, setEvents] = useState([]);
 
   const [leadsText, setLeadsText] = useState('');
@@ -136,6 +143,7 @@ export default function DialerDevice({
   const [session, setSession] = useState(null);
   const [starting, setStarting] = useState(false);
   const [meetingsBooked, setMeetingsBooked] = useState(0);
+  const meetingsBookedRef = useRef(0);
   const sessionMetaRef = useRef(null); // { startedAt, mode, listName, leadsTotal }
   // Every leg in the current batch, keyed by legId — replaced wholesale on
   // `batch:started`, upserted per leg on every lifecycle event after that.
@@ -154,6 +162,7 @@ export default function DialerDevice({
   // loop attachVolumeMeter() returns — there is no SDK-native volume event
   // to tear down for that path, just a setInterval/AudioContext.
   const providerRef = useRef('twilio');
+  const bridgeModeRef = useRef(false);
   const stopVolumeMeterRef = useRef(null);
   // SimpleUser needs a real <audio> element to attach the remote stream to;
   // Twilio's Voice SDK plays remote audio itself and needs no DOM element.
@@ -288,6 +297,7 @@ export default function DialerDevice({
           // The outbound leg's SID (see connectedLegRef's comment) — what
           // logOutcome needs, not the browser leg's own CallSid.
           callSid: lead?.callSid ?? null,
+          companyUrl: phoneToContactRef.current.get(lead?.phone)?.companyUrl ?? null,
           startedAt: Date.now(),
           transcript: preConnectTranscriptRef.current,
         });
@@ -322,6 +332,7 @@ export default function DialerDevice({
               from: info.from,
               name: info.name,
               company: info.company,
+              companyUrl: info.companyUrl,
               callSid: info.callSid,
               endedAt: Date.now(),
               durationSeconds,
@@ -503,13 +514,19 @@ export default function DialerDevice({
       const payload = await fetchToken();
 
       if (payload.phoneBridge) {
+        setBridgeMode(true);
+        bridgeModeRef.current = true;
         providerRef.current = 'signalwire';
         deviceRef.current = { _phoneBridge: true };
         dispatchStatus('REGISTERED');
         pushEvent('success', `Phone-bridge mode — calls ring ${payload.identity}'s phone`);
       } else if (payload.provider === 'signalwire') {
+        setBridgeMode(false);
+        bridgeModeRef.current = false;
         await bootSignalwireUser(payload);
       } else {
+        setBridgeMode(false);
+        bridgeModeRef.current = false;
         await bootTwilioDevice(payload);
       }
     } catch (err) {
@@ -537,6 +554,8 @@ export default function DialerDevice({
     dispatchStatus('GO_OFFLINE');
     setPendingCall(null);
     setCallInfo(null);
+    setBridgeMode(false);
+    bridgeModeRef.current = false;
     pushEvent('info', 'Went offline');
   }, [pushEvent, dispatchStatus]);
 
@@ -590,37 +609,46 @@ export default function DialerDevice({
   }, [pushEvent]);
 
   const logOutcome = useCallback(
-    (outcomeKey) => {
+    async (outcomeKey) => {
       const label = OUTCOMES.find((o) => o.key === outcomeKey)?.label ?? outcomeKey;
-      const inCall = status === AgentStatus.IN_CALL;
+      const inCall = Boolean(callInfo);
       const active = inCall ? callInfo : lastEndedCall;
-      if (outcomeKey === 'meeting') setMeetingsBooked((n) => n + 1);
-      pushEvent('success', `Logged: ${label}`, [active?.from, notes].filter(Boolean).join(' — ') || undefined);
-
-      if (active?.callSid) {
-        fetch(`${apiBase}/api/workspace/outcomes`, {
+      if (!active?.callSid) {
+        pushEvent('error', 'Cannot save this call: the carrier call ID is missing. Stop dialing and check the activity log.');
+        return;
+      }
+      setSavingOutcome(true);
+      try {
+        const response = await fetch(`${apiBase}/api/workspace/outcomes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ callSid: active.callSid, outcome: outcomeKey, notes }),
-        })
-          .then((response) => {
-            if (!response.ok) throw new Error(`outcome request failed (${response.status})`);
-          })
-          .catch((err) => pushEvent('warn', 'Outcome not sent to HubSpot', err.message));
-      } else {
-        // No outbound-leg SID captured for this call — logOutcome shouldn't
-        // block the agent on that, but say so rather than quietly acting as
-        // if it reached the CRM when it never left the browser.
-        pushEvent('warn', 'Outcome logged here only — no call SID to attach it to in HubSpot');
+          body: JSON.stringify({ callSid: active.callSid, outcome: outcomeKey, notes,
+            phone: active.from, durationSeconds: inCall ? elapsed : active.durationSeconds,
+            connectedAt: active.startedAt }),
+        });
+        if (!response.ok) throw new Error(`save failed (${response.status})`);
+        const result = await response.json();
+        if (result.created) onOutcomeSaved?.({ callSid: active.callSid, outcome: outcomeKey, notes, phone: active.from, savedAt: Date.now() });
+        if (result.created && outcomeKey === 'meeting') {
+          meetingsBookedRef.current += 1;
+          setMeetingsBooked(meetingsBookedRef.current);
+        }
+        pushEvent('success', `Saved: ${label}`, [active.from, notes].filter(Boolean).join(' — '));
+        if (!inCall && session?.sessionId) {
+          const resumed = await fetch(`${apiBase}/api/sessions/${encodeURIComponent(session.sessionId)}/resume`, { method: 'POST' });
+          if (!resumed.ok) throw new Error(`saved, but could not continue (${resumed.status})`);
+          const snapshot = await resumed.json();
+          if (snapshot.state !== 'IDLE') setSession(snapshot);
+        }
+        if (!inCall) setLastEndedCall(null);
+        setNotes('');
+      } catch (err) {
+        pushEvent('error', err.message);
+      } finally {
+        setSavingOutcome(false);
       }
-
-      // Logging mid-call records the outcome and clears the notes field for
-      // whatever's said next; it does not end the call. Logging after
-      // hangup dismisses the prompt too — there's nothing left to add to.
-      if (!inCall) setLastEndedCall(null);
-      setNotes('');
     },
-    [apiBase, authHeaders, pushEvent, status, callInfo, lastEndedCall, notes],
+    [apiBase, authHeaders, pushEvent, callInfo, lastEndedCall, notes, session, elapsed, onOutcomeSaved],
   );
 
   // ──────────────────────────────────────────────────── session control ────
@@ -633,19 +661,21 @@ export default function DialerDevice({
           id: `session-${meta.startedAt}`,
           startedAt: meta.startedAt,
           endedAt: Date.now(),
-          mode,
+          mode: meta.mode,
           listName: meta.listName,
           leadsTotal: meta.leadsTotal,
-          stats: finalSnapshot?.stats ?? session?.stats ?? {},
-          meetingsBooked,
+          stats: finalSnapshot?.stats ?? {},
+          meetingsBooked: meetingsBookedRef.current,
         });
       }
       sessionMetaRef.current = null;
       setSession(null);
       setMeetingsBooked(0);
+      meetingsBookedRef.current = 0;
       setBatchLegs([]);
+      setCurrentLead(null);
     },
-    [mode, meetingsBooked, onSessionEnded, session],
+    [onSessionEnded],
   );
 
   const startSession = useCallback(async () => {
@@ -689,8 +719,9 @@ export default function DialerDevice({
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || body.error || 'Failed to start session');
 
-      sessionMetaRef.current = { startedAt: Date.now(), listName: activeListName, leadsTotal: leads.length };
+      sessionMetaRef.current = { startedAt: Date.now(), mode, listName: activeListName, leadsTotal: leads.length };
       setMeetingsBooked(0);
+      meetingsBookedRef.current = 0;
       setBatchLegs([]);
       setSession(body);
       pushEvent(
@@ -704,7 +735,7 @@ export default function DialerDevice({
     } finally {
       setStarting(false);
     }
-  }, [leadsText, phoneToContact, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent, activeListName]);
+  }, [leadsText, phoneToContact, effectiveBatchSize, screening, apiBase, authHeaders, identity, pushEvent, activeListName, mode]);
 
   const stopSession = useCallback(async () => {
     if (!session?.sessionId) return;
@@ -734,6 +765,7 @@ export default function DialerDevice({
       ['leg:ended', (p) => `${p.phone} ended: ${p.disposition ?? 'unknown'}`],
       ['batch:resolved', () => 'Batch resolved'],
       ['session:exhausted', () => 'Lead list exhausted'],
+      ['session:paused', () => 'Call ended — save a disposition to continue'],
     ];
 
     const bound = handlers.map(([name, format]) => {
@@ -742,6 +774,40 @@ export default function DialerDevice({
           const payload = JSON.parse(message.data);
           const level = name === 'leg:connected' ? 'success' : name === 'leg:ended' ? 'muted' : 'info';
           pushEvent(level, format(payload), payload.transcript || undefined);
+          if (name === 'session:paused') setSession(payload);
+          if (name === 'leg:ended') setCurrentLead((lead) => lead?.legId === payload.legId ? null : lead);
+          if (name === 'leg:dialing' || name === 'leg:connected') {
+            const contact = phoneToContactRef.current.get(payload.phone);
+            setCurrentLead({ ...payload, name: payload.name || [contact?.firstName, contact?.lastName].filter(Boolean).join(' '),
+              company: payload.company || contact?.company, companyUrl: contact?.companyUrl, title: contact?.title, email: contact?.email });
+          }
+          if (name === 'leg:connected' && !bridgeModeRef.current) {
+            const contact = phoneToContactRef.current.get(payload.phone);
+            connectedLegRef.current = { callSid: payload.callSid, phone: payload.phone,
+              name: payload.name || [contact?.firstName, contact?.lastName].filter(Boolean).join(' '),
+              company: payload.company || contact?.company };
+          }
+          if (bridgeModeRef.current && name === 'leg:connected') {
+            const contact = phoneToContactRef.current.get(payload.phone);
+            const startedAt = payload.connectedAt || Date.now();
+            setCallInfo({ from: payload.phone, callSid: payload.callSid, name: payload.name || [contact?.firstName, contact?.lastName].filter(Boolean).join(' '),
+              company: payload.company || contact?.company, companyUrl: contact?.companyUrl, startedAt, transcript: payload.transcript });
+            setLastEndedCall(null);
+            setElapsed(0);
+            if (callTimerRef.current) clearInterval(callTimerRef.current);
+            callTimerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+          }
+          if (bridgeModeRef.current && name === 'leg:ended' && payload.callSid) {
+            if (callTimerRef.current) clearInterval(callTimerRef.current);
+            callTimerRef.current = null;
+            setCallInfo((info) => {
+              if (info?.callSid === payload.callSid) {
+                setLastEndedCall({ ...info, endedAt: Date.now(), durationSeconds: payload.durationSeconds || Math.round((Date.now() - info.startedAt) / 1000) });
+                return null;
+              }
+              return info;
+            });
+          }
           if (name === 'leg:classified' && payload.classification === 'HUMAN' && payload.won !== false) {
             // Held until the matching call actually rings this browser (see
             // `call.on('accept')`), then cleared. Best-effort under parallel
@@ -802,7 +868,7 @@ export default function DialerDevice({
   // ─────────────────────────────────────────────────────────────── render ────
 
   const online = status !== AgentStatus.OFFLINE && status !== AgentStatus.ERROR;
-  const inCall = status === AgentStatus.IN_CALL;
+  const inCall = Boolean(callInfo);
 
   return (
     <div className="tab tab--campaigns">
@@ -818,17 +884,18 @@ export default function DialerDevice({
 
       <section className="panel">
         <div className="panel__head">
-          <h2 className="panel__title">Device</h2>
+          <h2 className="panel__title">Call connection</h2>
           <span className={`badge badge--${STATUS_TONE[status]}`} role="status" aria-live="polite">
             <span className="badge__dot" aria-hidden="true" />
             {status}
           </span>
         </div>
+        {bridgeMode && <p className="bridge-notice">Phone bridge active. Call audio rings on your connected phone. Browser mic, speaker, mute and keypad do not control that phone call.</p>}
         <div className="row">
           <button type="button" className="btn btn--primary" onClick={goOnline} disabled={online}>
             Go online
           </button>
-          <button type="button" className="btn" onClick={goOffline} disabled={!online}>
+          <button type="button" className="btn" onClick={goOffline} disabled={!online || Boolean(session)}>
             Go offline
           </button>
           <label className="toggle">
@@ -836,6 +903,7 @@ export default function DialerDevice({
             Auto-answer connected leads
           </label>
         </div>
+        <AudioCheck bridgeMode={bridgeMode} />
       </section>
 
       {/* Promoted out of the Dial list panel so the numbers that matter mid-
@@ -918,28 +986,34 @@ export default function DialerDevice({
         </section>
       )}
 
-      {inCall && (
+      {(inCall || (currentLead && session && !lastEndedCall)) && (
         <section className="panel panel--live">
-          <h2 className="panel__title">On call</h2>
-          <ProspectPop info={callInfo} />
+          <div className="panel__head"><h2 className="panel__title">{inCall ? (bridgeMode ? 'Lead answered · check your phone' : 'On call') : 'Now dialing'}</h2>
+            {inCall && <span className="mono notes__timer">{formatDuration(elapsed)}</span>}</div>
+          <ProspectPop info={callInfo || (currentLead && { from: currentLead.phone, ...currentLead })} />
 
-          <div className="meters">
+          {!bridgeMode && inCall && <div className="meters">
             <Meter label="Mic" value={muted ? 0 : inputLevel} muted={muted} />
             <Meter label="Lead" value={outputLevel} />
-          </div>
+          </div>}
 
-          <div className="row">
+          {!bridgeMode && inCall && <><div className="row">
             <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
               {muted ? 'Unmute' : 'Mute'}
             </button>
             <button type="button" className="btn btn--stop" onClick={hangUp}>
               End call
             </button>
-          </div>
+          </div><div className="dial-pad" aria-label="Call keypad">
+            {'123456789*0#'.split('').map((digit) => <button key={digit} type="button" className="dial-pad__key"
+              disabled={!callRef.current || typeof callRef.current.sendDigits !== 'function'}
+              onClick={() => callRef.current?.sendDigits?.(digit)}>{digit}</button>)}
+          </div></>}
+          {bridgeMode && <p className="idle__text">Use your phone’s keypad, mute and hang-up controls. The browser cannot send tones or carry audio in phone-bridge mode.</p>}
         </section>
       )}
 
-      {!pendingCall && !inCall && (
+      {!pendingCall && !inCall && !currentLead && (
         <section className="panel panel--idle">
           <h2 className="panel__title">Call</h2>
           <p className="idle__text">{online ? 'Nothing on the line. A connected lead lands here.' : 'Go online to take calls.'}</p>
@@ -978,22 +1052,11 @@ export default function DialerDevice({
                     type="button"
                     className={`btn ${o.tone === 'good' ? 'btn--primary' : ''}`}
                     onClick={() => logOutcome(o.key)}
+                    disabled={savingOutcome || inCall}
                   >
-                    {o.label}
+                    {lastEndedCall && !inCall ? `${o.label} · save & continue` : o.label}
                   </button>
                 ))}
-                {lastEndedCall && !inCall && (
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
-                    onClick={() => {
-                      setLastEndedCall(null);
-                      setNotes('');
-                    }}
-                  >
-                    Skip
-                  </button>
-                )}
               </div>
 
               <div className="transcript">
@@ -1116,6 +1179,9 @@ function ProspectPop({ info }) {
         {info.name && <span className="prospect__name">{info.name}</span>}
         <span className="mono prospect__phone">{info.from ?? '—'}</span>
       </p>
+      {info.title && <p className="prospect__detail">{info.title}</p>}
+      {info.email && <p className="prospect__detail">{info.email}</p>}
+      {info.companyUrl && <p className="prospect__detail">Website: {info.companyUrl}</p>}
     </div>
   );
 }
@@ -1131,6 +1197,77 @@ function Meter({ label, value, muted = false }) {
       </div>
     </div>
   );
+}
+
+/** Local browser diagnostic only. In phone-bridge mode the phone carries the
+ * conversation; a responsive meter here does not imply live call audio. */
+function AudioCheck({ bridgeMode }) {
+  const [inputs, setInputs] = useState([]);
+  const [outputs, setOutputs] = useState([]);
+  const [micId, setMicId] = useState('');
+  const [level, setLevel] = useState(0);
+  const [message, setMessage] = useState('Run a check to allow the microphone and see the available devices.');
+  const stopRef = useRef(null);
+
+  useEffect(() => () => stopRef.current?.(), []);
+
+  async function checkMic(deviceId = micId) {
+    stopRef.current?.();
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMessage('This browser does not support microphone testing.');
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: deviceId ? { deviceId: { ideal: deviceId } } : true });
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setInputs(devices.filter((device) => device.kind === 'audioinput'));
+      setOutputs(devices.filter((device) => device.kind === 'audiooutput'));
+      const context = new AudioContext();
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 256;
+      context.createMediaStreamSource(stream).connect(analyser);
+      const bins = new Uint8Array(analyser.frequencyBinCount);
+      const timer = setInterval(() => {
+        analyser.getByteFrequencyData(bins);
+        setLevel(Math.min(1, bins.reduce((sum, n) => sum + n, 0) / bins.length / 80));
+      }, 100);
+      stopRef.current = () => { clearInterval(timer); stream.getTracks().forEach((track) => track.stop()); context.close().catch(() => {}); setLevel(0); };
+      setMessage(bridgeMode ? 'Browser mic test only — your phone carries live calls.' : 'Speak to check the browser microphone.');
+    } catch (err) {
+      setMessage(`Microphone unavailable: ${err.message}`);
+    }
+  }
+
+  async function testSpeaker() {
+    try {
+      const context = new AudioContext();
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      gain.gain.value = 0.08;
+      oscillator.frequency.value = 660;
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.3);
+      oscillator.onended = () => context.close().catch(() => {});
+      setMessage('Test tone played on your browser’s default output.');
+    } catch (err) { setMessage(`Speaker test unavailable: ${err.message}`); }
+  }
+
+  return <div className="audio-check">
+    <div className="audio-check__top"><strong>Browser audio check</strong><span>{bridgeMode ? 'Diagnostics only · calls on phone' : 'Check before dialing'}</span></div>
+    <div className="row">
+      <button type="button" className="btn" onClick={() => checkMic()}>Test microphone</button>
+      <button type="button" className="btn" onClick={testSpeaker}>Play test tone</button>
+    </div>
+    {inputs.length > 0 && <label className="field">Microphone
+      <select className="select" value={micId} onChange={(event) => { setMicId(event.target.value); checkMic(event.target.value); }}>
+        <option value="">System default</option>
+        {inputs.map((device) => <option key={device.deviceId} value={device.deviceId}>{device.label || 'Microphone'}</option>)}
+      </select></label>}
+    {outputs.length > 0 && <p className="audio-check__message">Detected output: {outputs.map((device) => device.label || 'Speaker').join(', ')}. Test tone uses the system default.</p>}
+    <Meter label="Mic test" value={level} />
+    <p className="audio-check__message" role="status">{message}</p>
+  </div>;
 }
 
 function formatDuration(totalSeconds) {

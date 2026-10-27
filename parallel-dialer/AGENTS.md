@@ -70,18 +70,28 @@ call in power-dial mode by making it hang up; a wrong verdict there would drop
 a call the agent is already on. Guard bridging on `leg.connectedAt`, not only
 on the winner claim: Twilio re-delivers status callbacks.
 
+After a connected power-dial leg ends, the session enters `PAUSED` and does
+not place the next call until the operator saves an outcome and calls the
+resume endpoint. Failed/no-answer legs still auto-advance. Keep this server-side;
+a frontend-only pause would not prevent an outbound call.
+
+SignalWire phone-bridge mode routes audio to `AGENT_PHONE_NUMBER`, not the
+browser. A browser mic test is only a device diagnostic. Do not label it live
+call audio or expose browser mute/keypad as functional phone-bridge controls.
+
 ## Frontend tabs and where their data lives
 
 The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
 Lists, Reports. Contacts, Lists and Session History are **server-side now**
-(`src/backend/workspaceStore.js`) — three whole-file JSON documents under
-`WORKSPACE_DATA_DIR` (default `./data/workspace`), loaded on boot and
+(`src/backend/workspaceStore.js`) — four whole-file JSON documents under
+`WORKSPACE_DATA_DIR` (default `./data/workspace` for local dev; use
+`/data/workspace` on Railway with a mounted volume), loaded on boot and
 rewritten atomically on every mutation, behind `GET/POST /api/workspace/*`
 (`src/backend/routes/workspace.js`). This closed the gap this file used to
 describe ("client-side state in `localStorage`, doesn't survive a restart"):
 `App.jsx` now fetches `/api/workspace/state` on mount and POSTs/DELETEs
 through the same router instead of calling `localStorage` directly. No
-database — three JSON files were enough for pilot-scale data, matching how
+database — JSON files are enough for pilot-scale data, matching how
 `AMD_AUDIT_PATH` and `HUBSPOT_DEAD_LETTER_PATH` already do this.
 
 An agent's own logged outcome (`Meeting booked` / `Follow up` / `Not

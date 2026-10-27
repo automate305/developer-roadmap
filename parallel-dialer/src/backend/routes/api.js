@@ -17,6 +17,7 @@ const BROADCAST_EVENTS = [
   'session:started',
   'session:stopped',
   'session:exhausted',
+  'session:paused',
   'session:error',
   'batch:started',
   'batch:connected',
@@ -29,7 +30,7 @@ const BROADCAST_EVENTS = [
   'leg:ended',
 ];
 
-export function createApiRouter({ engine = dialerEngine, auth = createOperatorAuth() } = {}) {
+export function createApiRouter({ engine = dialerEngine, store = null, auth = createOperatorAuth() } = {}) {
   const router = express.Router();
   router.use(express.json({ limit: '1mb' }));
 
@@ -86,7 +87,7 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
 
     // One agent per process: a second active session would dial more leads
     // than this workstation can answer, and can amplify spend on a retry.
-    if (engine.listSessions().some((entry) => entry.state === 'DIALING' || entry.state === 'IN_CALL')) {
+    if (engine.listSessions().some((entry) => ['DIALING', 'IN_CALL', 'PAUSED'].includes(entry.state))) {
       return res.status(409).json({ error: 'session_already_active' });
     }
 
@@ -100,6 +101,9 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
       leads.forEach(normalizeLead);
     } catch (err) {
       return res.status(400).json({ error: 'invalid_lead', message: err.message });
+    }
+    if (store && leads.some((lead) => store.isDoNotCall(normalizeLead(lead).phone))) {
+      return res.status(409).json({ error: 'do_not_call', message: 'This list contains a do-not-call number. Remove it before starting.' });
     }
 
     try {
@@ -122,6 +126,19 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
     const session = engine.snapshotSession(req.params.id);
     if (!session) return res.status(404).json({ error: 'not_found' });
     return res.json(session);
+  });
+
+  router.post('/sessions/:id/resume', auth.guard, async (req, res) => {
+    try {
+      const result = await engine.resumeSession(req.params.id);
+      if (!result && engine.snapshotSession(req.params.id)?.state !== 'IDLE') {
+        return res.status(409).json({ error: 'not_awaiting_disposition' });
+      }
+      return res.json(engine.snapshotSession(req.params.id));
+    } catch (err) {
+      log.error('failed to resume session', { err });
+      return res.status(500).json({ error: 'resume_failed' });
+    }
   });
 
   /** Stop a session and drop every live leg it owns. */

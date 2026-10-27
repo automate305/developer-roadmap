@@ -161,6 +161,24 @@ describe('power-dial mode (screening: false)', () => {
     assert.equal(after.disposition, Disposition.HUMAN);
   });
 
+  it('waits for a disposition after a connection before placing the next call', async () => {
+    const session = await harness.engine.startSession({ leads: LEADS.slice(0, 2), batchSize: 1, screening: false });
+    const first = session.currentBatch.legs[0];
+    await harness.engine.handleStatusCallback({ legId: first.legId, CallStatus: 'in-progress' });
+    await harness.engine.handleStatusCallback({ legId: first.legId, CallStatus: 'completed' });
+    assert.equal(harness.engine.snapshotSession(session.sessionId).state, 'PAUSED');
+    assert.equal(harness.engine.snapshotSession(session.sessionId).remainingLeads, 1);
+    assert.equal(await harness.engine.resumeSession(session.sessionId) !== null, true);
+    assert.equal(harness.engine.snapshotSession(session.sessionId).remainingLeads, 0);
+    assert.equal(await harness.engine.resumeSession(session.sessionId), null, 'duplicate continue cannot dial twice');
+  });
+
+  it('removes a newly blocked number from the remaining queue', async () => {
+    const session = await harness.engine.startSession({ leads: [LEADS[0], LEADS[1]], batchSize: 1, screening: false });
+    harness.engine.suppressPhone(LEADS[1]);
+    assert.equal(harness.engine.snapshotSession(session.sessionId).remainingLeads, 0);
+  });
+
   it('does not bridge twice when Twilio re-delivers the answer callback', async () => {
     const leg = await startPowerDial();
 

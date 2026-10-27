@@ -61,6 +61,7 @@ export const SessionState = Object.freeze({
   IDLE: 'IDLE',
   DIALING: 'DIALING',
   IN_CALL: 'IN_CALL',
+  PAUSED: 'PAUSED',
   STOPPED: 'STOPPED',
 });
 
@@ -155,6 +156,7 @@ export class DialerEngine extends EventEmitter {
       batchSize: size,
       screening,
       autoAdvance,
+      reviewPending: false,
       queue: normalized,
       batchIds: [],
       startedAt: Date.now(),
@@ -194,6 +196,21 @@ export class DialerEngine extends EventEmitter {
     this.emit('session:stopped', { ...this.snapshotSession(sessionId), reason });
     log.info('session stopped', { sessionId, reason });
     return this.snapshotSession(sessionId);
+  }
+
+  /** Resume after the operator has saved a connected call's disposition. */
+  async resumeSession(sessionId) {
+    const session = this.#sessions.get(sessionId);
+    if (!session || session.state !== SessionState.PAUSED || !session.reviewPending) return null;
+    session.reviewPending = false;
+    return this.#dialNextBatch(session);
+  }
+
+  /** A newly logged DNC cannot remain in a session's future queue. */
+  suppressPhone(phone) {
+    for (const session of this.#sessions.values()) {
+      session.queue = session.queue.filter((lead) => lead.phone !== phone);
+    }
   }
 
   // ─────────────────────────────────────────────────────────────── batches ────
@@ -445,6 +462,7 @@ export class DialerEngine extends EventEmitter {
    */
   async #connectToAgent(batch, leg) {
     const identity = batch.agentIdentity;
+    const session = this.#sessions.get(batch.sessionId);
     const twiml =
       '<?xml version="1.0" encoding="UTF-8"?>' +
       '<Response>' +
@@ -466,6 +484,7 @@ export class DialerEngine extends EventEmitter {
       await this.redirectCall(leg.callSid, twiml);
       leg.state = LegState.CONNECTED;
       leg.connectedAt = Date.now();
+      if (session && session.screening === false) session.reviewPending = true;
       this.emit('leg:connected', this.snapshotLeg(leg));
       this.emit('batch:connected', this.snapshotBatch(batch.id));
       log.info('leg bridged to agent', {
@@ -570,6 +589,12 @@ export class DialerEngine extends EventEmitter {
 
     const session = this.#sessions.get(batch.sessionId);
     if (!session || session.state === SessionState.STOPPED || !session.autoAdvance) return;
+
+    if (session.reviewPending) {
+      session.state = SessionState.PAUSED;
+      this.emit('session:paused', this.snapshotSession(session.id));
+      return;
+    }
 
     // Dial the next batch on a fresh tick so listeners see `batch:resolved`
     // before `batch:started` for the successor.
@@ -718,6 +743,7 @@ export class DialerEngine extends EventEmitter {
       classificationReason: leg.classificationReason ?? null,
       answeredAt: leg.answeredAt,
       endedAt: leg.endedAt,
+      connectedAt: leg.connectedAt ?? null,
       error: leg.error,
     };
   }

@@ -85,8 +85,8 @@ export function createApp({
 
   // ── Control plane + Twilio voice webhooks ────────────────────────────────
   const auth = createOperatorAuth();
-  app.use('/api', createApiRouter({ engine, auth }));
-  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, auth }));
+  app.use('/api', createApiRouter({ engine, store, auth }));
+  app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, engine, auth }));
   app.use('/twiml', createTwimlRouter({ engine }));
 
   // Convenience alias so infrastructure health checks need no /api prefix.
@@ -276,7 +276,7 @@ export async function start() {
 
   log.info('parallel dialer listening', {
     port: config.port,
-    voiceProvider: config.voiceProvider,
+    telephonyProvider: config.telephony.provider,
     publicBaseUrl: config.publicBaseUrl,
     mediaStreamUrl: `${config.publicWsUrl}/media-stream`,
     batchSize: config.dialer.batchSize,

@@ -1,8 +1,8 @@
 /**
  * routes/workspace.js — Contacts, Lists, Session History and agent-logged
- * call outcomes. Unlike routes/api.js, nothing here touches the live dialer
- * engine; this is the persistence surface that used to be the browser's
- * localStorage only (see AGENTS.md and workspaceStore.js).
+ * call outcomes. This is the persistence surface that used to be the browser's
+ * localStorage only (see AGENTS.md and workspaceStore.js). A saved DNC outcome
+ * also removes matching future leads from the live engine queue.
  */
 import express from 'express';
 
@@ -16,10 +16,9 @@ const log = logger.child({ module: 'routes/workspace' });
  * @param {import('../workspaceStore.js').WorkspaceStore} deps.store
  * @param {import('../callActivityQueue.js').CallActivityQueue|null} [deps.outcomeQueue]
  *   Enqueues HubSpot writes for agent-logged outcomes. `null` when HubSpot
- *   isn't configured — outcomes are then accepted but only ever persisted
- *   nowhere but the agent's own screen, same as today.
+ *   isn't configured — outcomes still persist in the workspace store.
  */
-export function createWorkspaceRouter({ store, outcomeQueue = null, auth = createOperatorAuth() }) {
+export function createWorkspaceRouter({ store, outcomeQueue = null, engine = null, auth = createOperatorAuth() }) {
   const router = express.Router();
   router.use(express.json({ limit: '2mb' })); // CSV imports can be a few thousand rows
 
@@ -77,18 +76,29 @@ export function createWorkspaceRouter({ store, outcomeQueue = null, auth = creat
    * outcome is durable once accepted (queued or dead-lettered), not once
    * synced.
    */
-  router.post('/outcomes', auth.guard, (req, res) => {
-    const { callSid, outcome, notes } = req.body ?? {};
+  router.post('/outcomes', auth.guard, async (req, res) => {
+    const { callSid, outcome, notes, phone, durationSeconds, connectedAt } = req.body ?? {};
     if (!callSid) return res.status(400).json({ error: 'callSid_required' });
-    if (!outcome) return res.status(400).json({ error: 'outcome_required' });
-
-    if (!outcomeQueue) {
-      log.warn('outcome logged but HubSpot is not configured — nothing to write to', { callSid, outcome });
-      return res.status(202).json({ accepted: false, reason: 'hubspot_not_configured' });
+    if (!['meeting', 'callback', 'meaningful', 'email', 'not_interested', 'do_not_call'].includes(outcome)) {
+      return res.status(400).json({ error: 'invalid_outcome' });
     }
 
-    const accepted = outcomeQueue.enqueue({ callSid, outcome, notes: notes ?? '' });
-    return res.status(202).json({ accepted });
+    try {
+      const { saved, created } = await store.appendCallOutcome({
+        callSid: String(callSid), outcome, notes: String(notes ?? '').slice(0, 10000),
+        phone: String(phone ?? ''), durationSeconds: Number(durationSeconds) || 0,
+        connectedAt: Number(connectedAt) || null, savedAt: Date.now(),
+      });
+      if (saved.outcome !== outcome || saved.notes !== String(notes ?? '').slice(0, 10000)) {
+        return res.status(409).json({ error: 'outcome_already_saved' });
+      }
+      if (created && outcome === 'do_not_call' && saved.phone) engine?.suppressPhone(saved.phone);
+      const crmQueued = created && outcomeQueue ? outcomeQueue.enqueue({ callSid, outcome, notes: saved.notes }) : false;
+      return res.status(created ? 201 : 200).json({ saved: true, created, crmQueued });
+    } catch (err) {
+      log.error('failed to persist call outcome', { err });
+      return res.status(500).json({ error: 'outcome_save_failed' });
+    }
   });
 
   return router;

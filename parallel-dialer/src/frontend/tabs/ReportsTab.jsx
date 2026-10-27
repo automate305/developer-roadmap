@@ -1,90 +1,53 @@
-/**
- * Reports tab — the numbers an agent actually wants after a session:
- * dialed, connects, meetings booked. Everything here is scoped to this
- * browser tab today (see AGENTS.md) — it resets on reload and isn't yet
- * written back to HubSpot. Real durability is the next step, not this one.
- */
-const TILES = [
-  { key: 'dialed', label: 'Dialed' },
-  { key: 'humans', label: 'Connects', tone: 'good' },
-  { key: 'meetingsBooked', label: 'Meetings booked', tone: 'good' },
-  { key: 'machines', label: 'Voicemail' },
-  { key: 'noAnswer', label: 'No answer' },
-  { key: 'abandoned', label: 'Abandoned', tone: 'warn' },
-];
+import { useMemo, useState } from 'react';
+import { activityCsv, dailyActivity, localDate } from '../lib/reporting.js';
 
-function sumStats(sessions) {
-  const totals = { dialed: 0, humans: 0, machines: 0, noAnswer: 0, abandoned: 0, failed: 0, meetingsBooked: 0 };
-  for (const s of sessions) {
-    for (const key of Object.keys(totals)) totals[key] += s.stats?.[key] ?? (key === 'meetingsBooked' ? s.meetingsBooked ?? 0 : 0);
+export default function ReportsTab({ sessionHistory, callOutcomes }) {
+  const [from, setFrom] = useState(() => localDate(Date.now()));
+  const [through, setThrough] = useState('');
+  const [metric, setMetric] = useState('all');
+  const rows = useMemo(() => dailyActivity(sessionHistory, callOutcomes, from, through), [sessionHistory, callOutcomes, from, through]);
+  const totals = rows.reduce((sum, row) => ({ dialed: sum.dialed + row.dialed,
+    connections: sum.connections + row.connections, meaningful: sum.meaningful + row.meaningful,
+    meetings: sum.meetings + row.meetings }), { dialed: 0, connections: 0, meaningful: 0, meetings: 0 });
+  const shown = metric === 'all' ? rows : rows.filter((row) => row[metric] > 0);
+
+  function exportCsv() {
+    const url = URL.createObjectURL(new Blob([activityCsv(shown)], { type: 'text/csv;charset=utf-8' }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `a305-dialer-activity-${from || 'all'}-to-${through || 'present'}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return totals;
-}
 
-export default function ReportsTab({ sessionHistory }) {
-  const totals = sumStats(sessionHistory);
-
-  const connectRate = totals.dialed > 0 ? Math.round((totals.humans / totals.dialed) * 100) : null;
-
-  return (
-    <div className="tab tab--reports">
-      <section className="panel">
-        <div className="panel__head">
-          <h2 className="panel__title">Today</h2>
-          {connectRate !== null && <span className="pill">{connectRate}% connect rate</span>}
-        </div>
-        <div className="tiles">
-          {TILES.map((tile) => (
-            <div key={tile.key} className={`tile ${tile.tone ? `tile--${tile.tone}` : ''}`}>
-              <dt>{tile.label}</dt>
-              <dd className="mono">{totals[tile.key] ?? 0}</dd>
-            </div>
-          ))}
-        </div>
-        <p className="reports__note">A campaign in progress shows its own live numbers on Campaigns — these totals fill in once it ends.</p>
-      </section>
-
-      <section className="panel">
-        <h2 className="panel__title">Sessions</h2>
-        {sessionHistory.length === 0 ? (
-          <p className="empty-state">
-            Nothing logged yet. Numbers land here once a campaign on the <strong>Campaigns</strong> tab finishes or is
-            stopped.
-          </p>
-        ) : (
-          <div className="sheet">
-            <table className="sheet__table sheet__table--reports">
-              <thead>
-                <tr>
-                  <th>Ended</th>
-                  <th>List</th>
-                  <th>Mode</th>
-                  <th>Dialed</th>
-                  <th>Connects</th>
-                  <th>Voicemail</th>
-                  <th>Meetings</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sessionHistory
-                  .slice()
-                  .reverse()
-                  .map((s) => (
-                    <tr key={s.id}>
-                      <td className="mono">{new Date(s.endedAt).toLocaleTimeString()}</td>
-                      <td>{s.listName || 'Pasted numbers'}</td>
-                      <td>{s.mode === 'parallel' ? 'Parallel' : 'Power'}</td>
-                      <td className="mono">{s.stats?.dialed ?? 0}</td>
-                      <td className="mono">{s.stats?.humans ?? 0}</td>
-                      <td className="mono">{s.stats?.machines ?? 0}</td>
-                      <td className="mono">{s.meetingsBooked ?? 0}</td>
-                    </tr>
-                  ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </section>
-    </div>
-  );
+  return <div className="tab tab--reports">
+    <section className="panel">
+      <div className="panel__head"><h2 className="panel__title">Activity report</h2>
+        <button type="button" className="btn btn--primary" onClick={exportCsv} disabled={!shown.length}>Export CSV</button></div>
+      <div className="row reports__filters">
+        <button type="button" className="btn" onClick={() => { setFrom(localDate(Date.now())); setThrough(''); }}>Today</button>
+        <button type="button" className="btn" onClick={() => { setFrom(''); setThrough(''); }}>All time</button>
+        <label className="field">From<input type="date" value={from} onChange={(e) => setFrom(e.target.value)} /></label>
+        <label className="field">Through (blank = present)<input type="date" value={through} min={from || undefined} onChange={(e) => setThrough(e.target.value)} /></label>
+        <label className="field">Show
+          <select className="select" value={metric} onChange={(e) => setMetric(e.target.value)}>
+            <option value="all">All days</option><option value="connections">Days with connections</option>
+            <option value="meaningful">Days with meaningful conversations</option><option value="meetings">Days with meetings</option>
+          </select></label>
+      </div>
+      {through && from && through < from && <p role="alert" className="bridge-notice">End date must be on or after start date.</p>}
+      <div className="tiles">
+        {[['dialed', 'Dialed'], ['connections', 'Connections'], ['meaningful', 'Meaningful conversations'], ['meetings', 'Meetings booked']].map(([key, label]) =>
+          <div key={key} className="tile"><dt>{label}</dt><dd className="mono">{totals[key]}</dd></div>)}
+      </div>
+      <p className="reports__note">Connections come from completed session summaries; meaningful conversations and meetings come from saved dispositions. In-progress sessions and earlier calls without dispositions may not appear yet.</p>
+    </section>
+    <section className="panel"><h2 className="panel__title">By day</h2>
+      {shown.length === 0 ? <p className="empty-state">No activity matches these dates and filters.</p> :
+        <div className="sheet"><table className="sheet__table"><thead><tr><th>Date</th><th>Dialed</th><th>Connections</th><th>Meaningful conversations</th><th>Meetings booked</th></tr></thead>
+          <tbody>{shown.map((row) => <tr key={row.date}><td>{row.date}</td><td>{row.dialed}</td><td>{row.connections}</td><td>{row.meaningful}</td><td>{row.meetings}</td></tr>)}</tbody></table></div>}
+    </section>
+  </div>;
 }

@@ -504,7 +504,10 @@ export async function findCallByExternalId(callSid) {
 export const AGENT_OUTCOME_LABELS = Object.freeze({
   meeting: 'Meeting booked',
   callback: 'Follow up',
+  meaningful: 'Meaningful conversation',
+  email: 'Send email',
   not_interested: 'Not interested',
+  do_not_call: 'Do not call',
 });
 
 /**
