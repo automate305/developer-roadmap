@@ -84,7 +84,8 @@ call audio or expose browser mute/keypad as functional phone-bridge controls.
 The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
 Lists, Reports. Contacts, Lists and Session History are **server-side now**
 (`src/backend/workspaceStore.js`) — three whole-file JSON documents under
-`WORKSPACE_DATA_DIR` (default `./data/workspace`), loaded on boot and
+`WORKSPACE_DATA_DIR` (default `./data/workspace` for local dev; use
+`/data/workspace` on Railway with a mounted volume), loaded on boot and
 rewritten atomically on every mutation, behind `GET/POST /api/workspace/*`
 (`src/backend/routes/workspace.js`). This closed the gap this file used to
 describe ("client-side state in `localStorage`, doesn't survive a restart"):

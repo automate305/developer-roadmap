@@ -35,6 +35,13 @@ Horizontal scaling needs shared state first — it is Gate 3.3 in
 
 **Settings → Volumes → New Volume**, mount path `/data`.
 
+Mounting alone is not enough: the workspace defaults to a relative path under
+the app container. In Railway **Variables**, set
+`WORKSPACE_DATA_DIR=/data/workspace` and
+`AMD_AUDIT_PATH=/data/amd-audit.jsonl`. If HubSpot is configured, also put
+both CRM dead-letter paths under `/data` (below). Confirm the volume shows as
+attached to the **dialer service**, not a different service.
+
 Without it, failed CRM writes land on the container's ephemeral layer and are
 erased by the next deploy. That silently undoes the durability guarantee the
 dead-letter queue exists to provide. The app warns loudly at boot if the path
@@ -70,6 +77,9 @@ DEEPGRAM_API_KEY=...
 HUBSPOT_ACCESS_TOKEN=pat-...
 HUBSPOT_CLIENT_SECRET=...
 HUBSPOT_DEAD_LETTER_PATH=/data/crm-dead-letter.jsonl
+HUBSPOT_OUTCOME_DEAD_LETTER_PATH=/data/crm-outcome-dead-letter.jsonl
+AMD_AUDIT_PATH=/data/amd-audit.jsonl
+WORKSPACE_DATA_DIR=/data/workspace
 
 DIALER_API_KEY=<a long random string>
 DIALER_AGENT_IDENTITY=agent_1
