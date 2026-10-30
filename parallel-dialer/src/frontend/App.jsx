@@ -310,6 +310,8 @@ export default function App() {
             contacts={contacts}
             onLegEnded={handleLegEnded}
             onSessionEnded={handleSessionEnded}
+            theme={theme}
+            onToggleTheme={toggleTheme}
           />
         </div>
 
@@ -327,7 +329,7 @@ export default function App() {
 
         {activeTab === 'reports' && (
           <div className="tab-panel">
-            <ReportsTab sessionHistory={sessionHistory} />
+            <ReportsTab sessionHistory={sessionHistory} apiBase={apiBase} />
           </div>
         )}
       </div>

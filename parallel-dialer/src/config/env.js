@@ -188,6 +188,25 @@ export const config = Object.freeze({
     // browser localStorage only; this is what makes it survive a restart.
     dataDir: str('WORKSPACE_DATA_DIR', './data/workspace'),
   },
+
+  /**
+   * Supabase — durable PostgreSQL storage for contacts, call logs, session
+   * reports, dispositions and AMD audit. When absent, the system falls back
+   * to the flat-file WorkspaceStore (ephemeral on Railway). Both can coexist
+   * in the env; the Supabase path takes precedence when configured.
+   */
+  supabase: {
+    url: str('SUPABASE_URL'),
+    serviceKey: str('SUPABASE_SERVICE_KEY'),
+  },
+
+  /**
+   * Make (Integromat) webhook fired on session end to sync KPIs to client
+   * RevOps dashboards.
+   */
+  make: {
+    sessionWebhookUrl: str('MAKE_SESSION_WEBHOOK_URL'),
+  },
 });
 
 const usingSignalwire = config.telephony.provider === 'signalwire';

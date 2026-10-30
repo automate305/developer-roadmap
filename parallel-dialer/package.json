@@ -36,6 +36,7 @@
     "@deepgram/sdk": "^3.9.0",
     "@hubspot/api-client": "^12.0.1",
     "@signalwire/compatibility-api": "^3.2.1",
+    "@supabase/supabase-js": "^2.118.0",
     "@twilio/voice-sdk": "^2.12.3",
     "@vitejs/plugin-react": "^4.3.4",
     "cors": "^2.8.5",

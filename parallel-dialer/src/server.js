@@ -31,10 +31,13 @@ import {
 import { CallActivityQueue } from './backend/callActivityQueue.js';
 import { AmdAuditLog, attachClassificationAudit } from './backend/classificationAudit.js';
 import { WorkspaceStore } from './backend/workspaceStore.js';
+import { WorkspaceDb } from './backend/db/workspaceDb.js';
+import { isSupabaseConfigured } from './backend/db/supabase.js';
 import { createApiRouter } from './backend/routes/api.js';
 import { createTwimlRouter } from './backend/routes/twiml.js';
 import { createWebhookRouter } from './backend/routes/webhooks.js';
 import { createWorkspaceRouter } from './backend/routes/workspace.js';
+import { createDispositionsRouter } from './backend/routes/dispositions.js';
 import { createOperatorAuth } from './backend/operatorAuth.js';
 
 const log = logger.child({ module: 'server' });
@@ -46,7 +49,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
  */
 export function createApp({
   engine = dialerEngine,
-  store = new WorkspaceStore({ dataDir: config.workspace.dataDir }),
+  store = isSupabaseConfigured()
+    ? new WorkspaceDb()
+    : new WorkspaceStore({ dataDir: config.workspace.dataDir }),
   outcomeQueue = null,
 } = {}) {
   const app = express();
@@ -87,6 +92,7 @@ export function createApp({
   const auth = createOperatorAuth();
   app.use('/api', createApiRouter({ engine, auth }));
   app.use('/api/workspace', createWorkspaceRouter({ store, outcomeQueue, auth }));
+  app.use('/api/dispositions', createDispositionsRouter({ auth }));
   app.use('/twiml', createTwimlRouter({ engine }));
 
   // Convenience alias so infrastructure health checks need no /api prefix.
@@ -230,7 +236,9 @@ export async function start() {
 
   // Load before the app is built so the very first request already sees
   // whatever survived the last restart, rather than an empty store.
-  const store = new WorkspaceStore({ dataDir: config.workspace.dataDir });
+  const store = isSupabaseConfigured()
+    ? new WorkspaceDb()
+    : new WorkspaceStore({ dataDir: config.workspace.dataDir });
   await store.load();
   const outcomeQueue = attachOutcomeLogging();
 

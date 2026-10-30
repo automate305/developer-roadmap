@@ -218,3 +218,78 @@ describe('power-dial mode interlock', () => {
     assert.equal(session.currentBatch.legs.length, 1);
   });
 });
+
+describe('pause / resume and hold-after-human', () => {
+  const tick = () => new Promise((resolve) => setImmediate(resolve));
+
+  /** One-line power-dial session over two leads that advances on its own. */
+  async function startTwoLeadSession(harness, overrides = {}) {
+    const started = [];
+    harness.engine.on('batch:started', (batch) => started.push(batch));
+    const session = await harness.engine.startSession({
+      leads: [LEADS[0], LEADS[1]], batchSize: 1, screening: false, ...overrides,
+    });
+    return { session, leg: session.currentBatch.legs[0], started };
+  }
+
+  /** Answer the leg, then hang it up, the way a finished conversation looks. */
+  async function finishConversation(engine, leg) {
+    await engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'in-progress' });
+    await engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'completed' });
+    await tick();
+    await tick();
+  }
+
+  it('does not dial the next batch while paused, and dials it on resume', async () => {
+    const harness = makeHarness();
+    const { session, leg, started } = await startTwoLeadSession(harness);
+
+    harness.engine.pauseSession(session.sessionId);
+    await finishConversation(harness.engine, leg);
+
+    assert.equal(started.length, 1, 'no second batch while paused');
+    assert.equal(harness.engine.snapshotSession(session.sessionId).remainingLeads, 1);
+
+    await harness.engine.resumeSession(session.sessionId);
+    assert.equal(started.length, 2, 'resume dials the held-back batch');
+    assert.equal(harness.engine.snapshotSession(session.sessionId).paused, false);
+  });
+
+  it('pauses itself after a human conversation when holdAfterHuman is set', async () => {
+    const harness = makeHarness();
+    const { session, leg, started } = await startTwoLeadSession(harness, { holdAfterHuman: true });
+    const paused = [];
+    harness.engine.on('session:paused', (event) => paused.push(event));
+
+    await finishConversation(harness.engine, leg);
+
+    assert.equal(paused.length, 1);
+    assert.equal(paused[0].reason, 'after_human');
+    assert.equal(started.length, 1, 'held for notes, next lead not dialed');
+
+    await harness.engine.resumeSession(session.sessionId);
+    assert.equal(started.length, 2);
+  });
+
+  it('keeps dialing straight through calls that never reached a human', async () => {
+    const harness = makeHarness();
+    const { leg, started } = await startTwoLeadSession(harness, { holdAfterHuman: true });
+
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'no-answer' });
+    await tick();
+    await tick();
+
+    assert.equal(started.length, 2, 'no-answer advances without a hold');
+  });
+
+  it('does not dial after the delay if the session was stopped meanwhile', async () => {
+    const harness = makeHarness();
+    const { session, leg, started } = await startTwoLeadSession(harness, { advanceDelayMs: 30 });
+
+    await harness.engine.handleStatusCallback({ legId: leg.legId, CallStatus: 'no-answer' });
+    await harness.engine.stopSession(session.sessionId);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+
+    assert.equal(started.length, 1);
+  });
+});

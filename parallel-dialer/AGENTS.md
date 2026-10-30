@@ -73,16 +73,37 @@ on the winner claim: Twilio re-delivers status callbacks.
 ## Frontend tabs and where their data lives
 
 The workstation is four tabs (`src/frontend/App.jsx`): Campaigns, Contacts,
-Lists, Reports. Contacts, Lists and Session History are **server-side now**
-(`src/backend/workspaceStore.js`) — three whole-file JSON documents under
-`WORKSPACE_DATA_DIR` (default `./data/workspace`), loaded on boot and
-rewritten atomically on every mutation, behind `GET/POST /api/workspace/*`
-(`src/backend/routes/workspace.js`). This closed the gap this file used to
-describe ("client-side state in `localStorage`, doesn't survive a restart"):
-`App.jsx` now fetches `/api/workspace/state` on mount and POSTs/DELETEs
-through the same router instead of calling `localStorage` directly. No
-database — three JSON files were enough for pilot-scale data, matching how
-`AMD_AUDIT_PATH` and `HUBSPOT_DEAD_LETTER_PATH` already do this.
+Lists, Reports. Contacts, Lists and Session History are **server-side**,
+behind `GET/POST /api/workspace/*` (`src/backend/routes/workspace.js`). Two
+interchangeable stores sit behind that router, picked once at boot in
+`server.js` by `isSupabaseConfigured()`:
+
+- **`WorkspaceStore`** (`workspaceStore.js`, the default) — three whole-file
+  JSON documents under `WORKSPACE_DATA_DIR`, rewritten atomically on every
+  mutation. Fine for pilot scale, but **Railway's disk is ephemeral**: a
+  redeploy wipes it.
+- **`WorkspaceDb`** (`src/backend/db/workspaceDb.js`) — Postgres via Supabase,
+  used when `SUPABASE_URL` and `SUPABASE_SERVICE_KEY` are both set. Same
+  interface as the file store. Schema lives in `src/backend/db/migrations.sql`
+  and must be run by hand in the Supabase SQL editor. The service key is
+  server-only (it bypasses RLS) — never expose it via `VITE_*`.
+
+Supabase also backs things the file store has no equivalent for: custom
+dispositions (`/api/dispositions`, soft-deleted so old call logs stay valid)
+and a per-leg call log (`/api/workspace/call-logs`). Without Supabase those
+endpoints answer 503 / 202 and the UI falls back to built-in defaults.
+`MAKE_SESSION_WEBHOOK_URL`, when set, receives the session KPI payload each
+time a session ends (`makeWebhook.js`, fired in the background).
+
+**Pause / hold-after-human.** `dialerEngine.js` advances to the next batch the
+moment one resolves, so a notes window has to be enforced engine-side. A
+session can be `paused` (`POST /api/sessions/:id/pause|resume`); a paused
+session finishes its live call, then holds (`pendingAdvance`) until resumed.
+`holdAfterHuman` makes the engine pause itself after any batch that had a
+winner, emitting `session:paused` with `reason: 'after_human'` — that is what
+opens the notes modal in `DialerDevice.jsx`. `advanceDelayMs` adds a beat
+between unanswered calls. Pausing never hangs up a live call and never
+touches the winner race or the audio path.
 
 An agent's own logged outcome (`Meeting booked` / `Follow up` / `Not
 interested`, from the "Call notes" card) **does now reach HubSpot** —
@@ -157,7 +178,7 @@ incomparable calls.
 ```bash
 cd parallel-dialer
 npm install
-npm test            # 90 unit tests, no network
+npm test            # unit tests, no network
 npm run build       # server + web
 npm run dev:all     # API on :3000, workstation on :5173
 node scripts/score-amd.mjs   # AMD verdicts, latency percentiles, confusion matrix

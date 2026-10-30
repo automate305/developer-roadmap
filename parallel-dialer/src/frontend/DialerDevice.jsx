@@ -32,6 +32,8 @@ import { Device } from '@twilio/voice-sdk';
 import { SimpleUser } from 'sip.js/lib/platform/web/simple-user/simple-user.js';
 import { AgentStatus, transition } from './lib/callStateMachine.js';
 import { createSignalwireCallAdapter, attachVolumeMeter } from './lib/signalwireSoftphone.js';
+import NotesModal from './components/NotesModal.jsx';
+import SettingsPanel from './components/SettingsPanel.jsx';
 
 export { AgentStatus };
 
@@ -77,6 +79,28 @@ function legPhase(leg) {
 /** Outcomes an agent can log by hand once a call ends. The dialer's own AMD
  * verdicts (HUMAN/MACHINE/NO_ANSWER/…) come from the engine, not this — this
  * is what the agent decided about a conversation that actually happened. */
+/** Notes-modal disposition label → the outcome key HubSpot understands. Labels
+ * with no entry are logged to Supabase only (the backend skips HubSpot for
+ * keys it has no mapping for). */
+const HUBSPOT_OUTCOME_KEY = {
+  'Meeting Booked': 'meeting',
+  Callback: 'callback',
+  'Not Interested': 'not_interested',
+};
+
+/** Normalise a disposition label or outcome key into a session-KPI counter. */
+function kpiKey(labelOrKey) {
+  switch (String(labelOrKey).toLowerCase().replace(/[\s_-]+/g, '')) {
+    case 'meetingbooked':
+    case 'meeting': return 'meetingsBooked';
+    case 'interested': return 'interested';
+    case 'notinterested': return 'notInterested';
+    case 'callback':
+    case 'followup': return 'callbacks';
+    default: return null;
+  }
+}
+
 const OUTCOMES = [
   { key: 'meeting', label: 'Meeting booked', tone: 'good' },
   { key: 'callback', label: 'Follow up' },
@@ -109,6 +133,8 @@ export default function DialerDevice({
   contacts = [],
   onLegEnded,
   onSessionEnded,
+  theme = 'dark',
+  onToggleTheme,
 }) {
   const [status, setStatus] = useState(AgentStatus.OFFLINE);
   const [error, setError] = useState(null);
@@ -136,6 +162,35 @@ export default function DialerDevice({
   const [session, setSession] = useState(null);
   const [starting, setStarting] = useState(false);
   const [meetingsBooked, setMeetingsBooked] = useState(0);
+
+  // Call controls
+  const [held, setHeld] = useState(false);
+  const [sessionPaused, setSessionPaused] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+
+  // Notes modal: opened when the engine pauses the session after a human
+  // conversation (see `holdAfterHuman` in startSession). null = closed.
+  const [notesModalData, setNotesModalData] = useState(null);
+
+  // Dispositions loaded from the backend; these defaults stand in when
+  // Supabase isn't configured (the endpoint answers 503) or the fetch fails.
+  const [dispositions, setDispositions] = useState([
+    { id: 1, label: 'Meeting Booked', requires_notes: true, category: 'manual' },
+    { id: 2, label: 'Interested',     requires_notes: true, category: 'manual' },
+    { id: 3, label: 'Callback',       requires_notes: true, category: 'manual' },
+    { id: 4, label: 'Not Interested', requires_notes: false, category: 'manual' },
+  ]);
+
+  // The SSE effect closes over its first render only (re-subscribing would
+  // drop in-flight frames), so everything it needs to read fresh goes
+  // through refs: the live session id, per-session counters, the most recent
+  // connected lead, and the latest finishSession.
+  const sessionIdRef = useRef(null);
+  const lastHumanLegRef = useRef(null);
+  const outcomeCountsRef = useRef({});
+  const legCountsRef = useRef({});
+  const outcomesByCallSidRef = useRef(new Map());
+  const finishSessionRef = useRef(() => {});
   const sessionMetaRef = useRef(null); // { startedAt, mode, listName, leadsTotal }
   // Every leg in the current batch, keyed by legId — replaced wholesale on
   // `batch:started`, upserted per leg on every lifecycle event after that.
@@ -218,6 +273,21 @@ export default function DialerDevice({
 
   // The browser session cookie is sent automatically on same-origin requests.
   const authHeaders = useMemo(() => ({}), []);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${apiBase}/api/dispositions`, { headers: authHeaders })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((rows) => {
+        if (!cancelled && Array.isArray(rows) && rows.length > 0) setDispositions(rows);
+      })
+      .catch(() => {
+        /* keep the built-in defaults */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiBase, authHeaders]);
 
   /** Append to the activity log, newest first, bounded. */
   const pushEvent = useCallback((level, message, detail) => {
@@ -310,6 +380,8 @@ export default function DialerDevice({
         setInputLevel(0);
         setOutputLevel(0);
         setMuted(false);
+        setHeld(false);
+        if (remoteAudioRef.current) remoteAudioRef.current.muted = false;
         dispatchStatus('CALL_ENDED');
         pushEvent('info', label);
         // A connected call is worth asking about; one that never connected
@@ -589,19 +661,99 @@ export default function DialerDevice({
     pushEvent('info', 'Hang up requested');
   }, [pushEvent]);
 
+  /** Hold = mic muted + far end silenced locally. The Twilio Voice SDK has no
+   * way to mute incoming audio, so on that path only the mic is muted. */
+  const toggleHold = useCallback(() => {
+    const call = callRef.current;
+    if (!call) return;
+    const next = !held;
+    call.mute(next);
+    setMuted(next);
+    if (remoteAudioRef.current) remoteAudioRef.current.muted = next;
+    setHeld(next);
+    pushEvent('info', next ? 'Call on hold' : 'Call taken off hold');
+  }, [held, pushEvent]);
+
+  /** Pause/resume the dialing queue. Pausing never drops a live call — the
+   * engine just doesn't dial the next lead once this one ends. */
+  const togglePause = useCallback(async () => {
+    if (!session?.sessionId) return;
+    const action = sessionPaused ? 'resume' : 'pause';
+    try {
+      const response = await fetch(`${apiBase}/api/sessions/${session.sessionId}/${action}`, {
+        method: 'POST',
+        headers: authHeaders,
+      });
+      if (!response.ok) throw new Error(`${action} failed (${response.status})`);
+      const body = await response.json();
+      setSessionPaused(Boolean(body.paused));
+      if (action === 'resume') setNotesModalData(null);
+      pushEvent('info', action === 'pause' ? 'Session will pause after this call' : 'Session resumed');
+    } catch (err) {
+      pushEvent('error', `Could not ${action} session: ${err.message}`);
+    }
+  }, [session, sessionPaused, apiBase, authHeaders, pushEvent]);
+
+  const resumeAfterNotes = useCallback(async () => {
+    setNotesModalData(null);
+    const id = sessionIdRef.current;
+    if (!id) return;
+    try {
+      const response = await fetch(`${apiBase}/api/sessions/${id}/resume`, { method: 'POST', headers: authHeaders });
+      if (!response.ok) throw new Error(`resume failed (${response.status})`);
+      setSessionPaused(false);
+    } catch (err) {
+      pushEvent('error', `Could not resume dialing: ${err.message}`);
+    }
+  }, [apiBase, authHeaders, pushEvent]);
+
+  const submitNotes = useCallback(
+    ({ disposition, notes: modalNotes }) => {
+      const lead = notesModalData;
+      if (disposition && lead) {
+        const key = kpiKey(disposition);
+        if (key) outcomeCountsRef.current[key] = (outcomeCountsRef.current[key] ?? 0) + 1;
+        if (key === 'meetingsBooked') setMeetingsBooked((n) => n + 1);
+        pushEvent('success', `Logged: ${disposition}`, [lead.phone, modalNotes].filter(Boolean).join(' — ') || undefined);
+
+        if (lead.callSid) {
+          fetch(`${apiBase}/api/workspace/outcomes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...authHeaders },
+            body: JSON.stringify({
+              callSid: lead.callSid,
+              sessionId: sessionIdRef.current,
+              outcome: HUBSPOT_OUTCOME_KEY[disposition] ?? disposition,
+              notes: modalNotes,
+            }),
+          }).catch((err) => pushEvent('warn', 'Outcome not saved', err.message));
+        } else {
+          pushEvent('warn', 'Outcome logged here only — no call SID to attach it to');
+        }
+      }
+      resumeAfterNotes();
+    },
+    [notesModalData, apiBase, authHeaders, pushEvent, resumeAfterNotes],
+  );
+
   const logOutcome = useCallback(
     (outcomeKey) => {
       const label = OUTCOMES.find((o) => o.key === outcomeKey)?.label ?? outcomeKey;
       const inCall = status === AgentStatus.IN_CALL;
       const active = inCall ? callInfo : lastEndedCall;
       if (outcomeKey === 'meeting') setMeetingsBooked((n) => n + 1);
+      const counter = kpiKey(outcomeKey);
+      if (counter) outcomeCountsRef.current[counter] = (outcomeCountsRef.current[counter] ?? 0) + 1;
+      // The call-log row is written when the leg ends; an outcome logged
+      // mid-call is remembered so it rides along instead of being lost.
+      if (active?.callSid) outcomesByCallSidRef.current.set(active.callSid, { outcome: outcomeKey, notes });
       pushEvent('success', `Logged: ${label}`, [active?.from, notes].filter(Boolean).join(' — ') || undefined);
 
       if (active?.callSid) {
         fetch(`${apiBase}/api/workspace/outcomes`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ callSid: active.callSid, outcome: outcomeKey, notes }),
+          body: JSON.stringify({ callSid: active.callSid, sessionId: sessionIdRef.current, outcome: outcomeKey, notes }),
         })
           .then((response) => {
             if (!response.ok) throw new Error(`outcome request failed (${response.status})`);
@@ -629,24 +781,44 @@ export default function DialerDevice({
     (finalSnapshot) => {
       const meta = sessionMetaRef.current;
       if (meta && onSessionEnded) {
+        const engineStats = finalSnapshot?.stats ?? session?.stats ?? {};
+        const outcomes = outcomeCountsRef.current;
+        const legs = legCountsRef.current;
+        const endedAt = Date.now();
         onSessionEnded({
           id: `session-${meta.startedAt}`,
           startedAt: meta.startedAt,
-          endedAt: Date.now(),
+          endedAt,
           mode,
           listName: meta.listName,
           leadsTotal: meta.leadsTotal,
-          stats: finalSnapshot?.stats ?? session?.stats ?? {},
-          meetingsBooked,
+          durationSeconds: Math.round((endedAt - meta.startedAt) / 1000),
+          stats: {
+            ...engineStats,
+            busy: legs.BUSY ?? 0,
+            interested: outcomes.interested ?? 0,
+            notInterested: outcomes.notInterested ?? 0,
+            callbacks: outcomes.callbacks ?? 0,
+          },
+          meetingsBooked: outcomes.meetingsBooked ?? meetingsBooked,
         });
       }
       sessionMetaRef.current = null;
+      sessionIdRef.current = null;
+      outcomeCountsRef.current = {};
+      legCountsRef.current = {};
+      outcomesByCallSidRef.current = new Map();
+      lastHumanLegRef.current = null;
       setSession(null);
+      setSessionPaused(false);
+      setNotesModalData(null);
+      setHeld(false);
       setMeetingsBooked(0);
       setBatchLegs([]);
     },
     [mode, meetingsBooked, onSessionEnded, session],
   );
+  finishSessionRef.current = finishSession;
 
   const startSession = useCallback(async () => {
     const phones = leadsText
@@ -684,12 +856,22 @@ export default function DialerDevice({
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({
           agentIdentity: identity, leads, batchSize: effectiveBatchSize, screening,
+          // Power-dial loop: hold after a real conversation so the agent can
+          // log notes, and leave a short beat between unanswered calls.
+          holdAfterHuman: true,
+          advanceDelayMs: 2000,
         }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.message || body.error || 'Failed to start session');
 
       sessionMetaRef.current = { startedAt: Date.now(), listName: activeListName, leadsTotal: leads.length };
+      sessionIdRef.current = body.sessionId;
+      outcomeCountsRef.current = {};
+      legCountsRef.current = {};
+      outcomesByCallSidRef.current = new Map();
+      lastHumanLegRef.current = null;
+      setSessionPaused(false);
       setMeetingsBooked(0);
       setBatchLegs([]);
       setSession(body);
@@ -733,6 +915,8 @@ export default function DialerDevice({
       ['leg:connected', (p) => `Bridging ${p.phone} to you`],
       ['leg:ended', (p) => `${p.phone} ended: ${p.disposition ?? 'unknown'}`],
       ['batch:resolved', () => 'Batch resolved'],
+      ['session:paused', (p) => (p.reason === 'after_human' ? 'Paused — log your notes' : 'Session paused')],
+      ['session:resumed', () => 'Session resumed'],
       ['session:exhausted', () => 'Lead list exhausted'],
     ];
 
@@ -758,11 +942,54 @@ export default function DialerDevice({
               company: payload.company || fallback?.company || null,
             };
           }
+          if (name === 'leg:connected') {
+            lastHumanLegRef.current = {
+              phone: payload.phone ?? null,
+              name: payload.name ?? null,
+              company: payload.company ?? null,
+              callSid: payload.callSid ?? null,
+            };
+          }
           if (name === 'leg:ended' && payload.phone && onLegEnded) {
             onLegEnded({ phone: payload.phone, disposition: payload.disposition ?? 'UNKNOWN', at: Date.now() });
           }
+          if (name === 'leg:ended' && payload.sessionId && payload.sessionId === sessionIdRef.current) {
+            const disposition = payload.disposition ?? 'UNKNOWN';
+            legCountsRef.current[disposition] = (legCountsRef.current[disposition] ?? 0) + 1;
+            const early = payload.callSid ? outcomesByCallSidRef.current.get(payload.callSid) : null;
+            // Best-effort: a no-op (202) when Supabase isn't configured.
+            fetch(`${apiBase}/api/workspace/call-logs`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                sessionId: payload.sessionId,
+                campaignName: sessionMetaRef.current?.listName ?? undefined,
+                phone: payload.phone,
+                name: payload.name,
+                company: payload.company,
+                contactId: null,
+                callSid: payload.callSid,
+                durationSeconds: payload.durationSeconds,
+                disposition,
+                transcript: payload.transcript,
+                dialedAt: payload.answeredAt ?? undefined,
+                agentOutcome: early?.outcome,
+                notes: early?.notes,
+              }),
+            }).catch(() => {});
+          }
+          if (name === 'session:paused' && payload.sessionId === sessionIdRef.current) {
+            setSessionPaused(true);
+            if (payload.reason === 'after_human' && lastHumanLegRef.current) {
+              setNotesModalData(lastHumanLegRef.current);
+            }
+          }
+          if (name === 'session:resumed' && payload.sessionId === sessionIdRef.current) {
+            setSessionPaused(false);
+            setNotesModalData(null);
+          }
           if (payload.sessionId && name === 'session:exhausted') {
-            finishSession(payload);
+            finishSessionRef.current(payload);
           }
           // The line rack: `batch:started` carries every leg for the new
           // batch (replacing whatever the last batch left on screen), and
@@ -796,7 +1023,7 @@ export default function DialerDevice({
       for (const [name, listener] of bound) source.removeEventListener(name, listener);
       source.close();
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- finishSession/onLegEnded intentionally not in the dep list: re-subscribing on every session start/stop would drop in-flight SSE frames.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onLegEnded intentionally not in the dep list: re-subscribing on every session start/stop would drop in-flight SSE frames. finishSession is read through finishSessionRef for the same reason.
   }, [apiBase, pushEvent]);
 
   // ─────────────────────────────────────────────────────────────── render ────
@@ -835,15 +1062,46 @@ export default function DialerDevice({
             <input type="checkbox" checked={autoAnswer} onChange={(e) => setAutoAnswer(e.target.checked)} />
             Auto-answer connected leads
           </label>
+          <button
+            type="button"
+            className="btn btn--ghost"
+            onClick={() => setShowSettings(true)}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            ⚙ Settings
+          </button>
         </div>
       </section>
+
+      {showSettings && (
+        <SettingsPanel
+          onClose={() => setShowSettings(false)}
+          theme={theme}
+          onToggleTheme={onToggleTheme}
+          apiBase={apiBase}
+          authHeaders={authHeaders}
+        />
+      )}
+
+      {notesModalData && (
+        <NotesModal
+          prospectInfo={notesModalData}
+          dispositions={dispositions}
+          onSubmit={submitNotes}
+          onSkip={resumeAfterNotes}
+        />
+      )}
 
       {/* Promoted out of the Dial list panel so the numbers that matter mid-
           shift — how many are left, how many turned into a meeting — are
           visible without scrolling past whatever's on the line right now. */}
       {session && (
         <section className="panel panel--metrics">
-          <h2 className="panel__title">Live metrics</h2>
+          <div className="panel__head">
+            <h2 className="panel__title">Live metrics</h2>
+            {sessionPaused && <span className="badge badge--pending">Paused</span>}
+          </div>
           <dl className="facts facts--wide">
             <div>
               <dt>Remaining</dt>
@@ -929,8 +1187,11 @@ export default function DialerDevice({
           </div>
 
           <div className="row">
-            <button type="button" className={`btn ${muted ? 'btn--warn' : ''}`} onClick={toggleMute}>
+            <button type="button" className={`btn ${muted && !held ? 'btn--warn' : ''}`} onClick={toggleMute} disabled={held}>
               {muted ? 'Unmute' : 'Mute'}
+            </button>
+            <button type="button" className={`btn ${held ? 'btn--warn' : ''}`} onClick={toggleHold}>
+              {held ? 'Resume call' : 'Hold'}
             </button>
             <button type="button" className="btn btn--stop" onClick={hangUp}>
               End call
@@ -1065,17 +1326,25 @@ export default function DialerDevice({
               disabled={Boolean(session) || !screening}
             />
           </label>
-          <button
-            type="button"
-            className="btn btn--primary"
-            onClick={startSession}
-            disabled={!online || starting || Boolean(session)}
-          >
-            {starting ? 'Starting…' : 'Start dialing'}
-          </button>
-          <button type="button" className="btn btn--danger" onClick={stopSession} disabled={!session}>
-            Stop
-          </button>
+          {session ? (
+            <button type="button" className="btn btn--stop" onClick={inCall ? hangUp : stopSession}>
+              {inCall ? 'End call' : 'End session'}
+            </button>
+          ) : (
+            <button type="button" className="btn btn--go" onClick={startSession} disabled={!online || starting}>
+              {starting ? 'Starting…' : 'Start dialing'}
+            </button>
+          )}
+          {session && (
+            <button type="button" className={`btn ${sessionPaused ? 'btn--warn' : ''}`} onClick={togglePause}>
+              {sessionPaused ? 'Resume session' : 'Pause session'}
+            </button>
+          )}
+          {session && inCall && (
+            <button type="button" className="btn btn--danger" onClick={stopSession}>
+              End session
+            </button>
+          )}
         </div>
       </section>
 

@@ -17,6 +17,8 @@ const BROADCAST_EVENTS = [
   'session:started',
   'session:stopped',
   'session:exhausted',
+  'session:paused',
+  'session:resumed',
   'session:error',
   'batch:started',
   'batch:connected',
@@ -82,7 +84,7 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
    * bridged on answer, no AMD verdict acted on.
    */
   router.post('/sessions', auth.guard, async (req, res) => {
-    const { agentIdentity, leads, batchSize, autoAdvance, screening } = req.body ?? {};
+    const { agentIdentity, leads, batchSize, autoAdvance, screening, holdAfterHuman, advanceDelayMs } = req.body ?? {};
 
     // One agent per process: a second active session would dial more leads
     // than this workstation can answer, and can amplify spend on a retry.
@@ -104,7 +106,7 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
 
     try {
       const session = await engine.startSession({
-        agentIdentity, leads, batchSize, autoAdvance,
+        agentIdentity, leads, batchSize, autoAdvance, holdAfterHuman, advanceDelayMs,
         ...(screening === undefined ? {} : { screening: Boolean(screening) }),
       });
       return res.status(201).json(session);
@@ -122,6 +124,25 @@ export function createApiRouter({ engine = dialerEngine, auth = createOperatorAu
     const session = engine.snapshotSession(req.params.id);
     if (!session) return res.status(404).json({ error: 'not_found' });
     return res.json(session);
+  });
+
+  /** Stop dialing new batches once the current one resolves; never hangs up a live call. */
+  router.post('/sessions/:id/pause', auth.guard, (req, res) => {
+    const session = engine.pauseSession(req.params.id);
+    if (!session) return res.status(404).json({ error: 'not_found' });
+    return res.json(session);
+  });
+
+  /** Clear a pause; dials the next batch immediately if one was held back. */
+  router.post('/sessions/:id/resume', auth.guard, async (req, res) => {
+    try {
+      const session = await engine.resumeSession(req.params.id);
+      if (!session) return res.status(404).json({ error: 'not_found' });
+      return res.json(session);
+    } catch (err) {
+      log.error('failed to resume session', { err });
+      return res.status(500).json({ error: 'resume_failed', message: err.message });
+    }
   });
 
   /** Stop a session and drop every live leg it owns. */

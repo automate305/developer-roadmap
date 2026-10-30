@@ -130,7 +130,15 @@ export class DialerEngine extends EventEmitter {
    *   disposition becomes ground truth for `scripts/score-amd.mjs`.
    * @returns {Promise<object>} session snapshot
    */
-  async startSession({ agentIdentity, leads, batchSize, autoAdvance = true, screening = config.dialer.screening }) {
+  async startSession({
+    agentIdentity,
+    leads,
+    batchSize,
+    autoAdvance = true,
+    screening = config.dialer.screening,
+    holdAfterHuman = false,
+    advanceDelayMs = 0,
+  }) {
     const identity = agentIdentity || config.dialer.agentIdentity;
     const normalized = (leads ?? []).map(normalizeLead);
     if (normalized.length === 0) throw new Error('startSession requires at least one lead');
@@ -155,6 +163,13 @@ export class DialerEngine extends EventEmitter {
       batchSize: size,
       screening,
       autoAdvance,
+      // Pause surface: `paused` stops the next batch from dialing once the
+      // current one resolves; `pendingAdvance` remembers that an advance was
+      // skipped so resume knows to dial. Neither ever touches a live call.
+      paused: false,
+      pendingAdvance: false,
+      holdAfterHuman: Boolean(holdAfterHuman),
+      advanceDelayMs: Math.min(Math.max(Number(advanceDelayMs) || 0, 0), 30000),
       queue: normalized,
       batchIds: [],
       startedAt: Date.now(),
@@ -193,6 +208,43 @@ export class DialerEngine extends EventEmitter {
 
     this.emit('session:stopped', { ...this.snapshotSession(sessionId), reason });
     log.info('session stopped', { sessionId, reason });
+    return this.snapshotSession(sessionId);
+  }
+
+  /**
+   * Ask a session to stop dialing new batches. Takes effect once the current
+   * batch resolves; a live call is never interrupted.
+   * @param {string} sessionId
+   */
+  pauseSession(sessionId) {
+    const session = this.#sessions.get(sessionId);
+    if (!session) return null;
+    if (session.state === SessionState.STOPPED || session.state === SessionState.IDLE) return this.snapshotSession(sessionId);
+    if (!session.paused) {
+      session.paused = true;
+      this.emit('session:paused', this.snapshotSession(sessionId));
+      log.info('session paused', { sessionId });
+    }
+    return this.snapshotSession(sessionId);
+  }
+
+  /**
+   * Clear a pause and, if an advance was skipped while paused, dial the next
+   * batch now.
+   * @param {string} sessionId
+   */
+  async resumeSession(sessionId) {
+    const session = this.#sessions.get(sessionId);
+    if (!session) return null;
+    if (session.paused) {
+      session.paused = false;
+      this.emit('session:resumed', this.snapshotSession(sessionId));
+      log.info('session resumed', { sessionId });
+    }
+    if (session.pendingAdvance && session.state !== SessionState.STOPPED) {
+      session.pendingAdvance = false;
+      await this.#dialNextBatch(session);
+    }
     return this.snapshotSession(sessionId);
   }
 
@@ -571,14 +623,32 @@ export class DialerEngine extends EventEmitter {
     const session = this.#sessions.get(batch.sessionId);
     if (!session || session.state === SessionState.STOPPED || !session.autoAdvance) return;
 
-    // Dial the next batch on a fresh tick so listeners see `batch:resolved`
-    // before `batch:started` for the successor.
-    setImmediate(() => {
+    // Hold for the agent's notes after a conversation: the batch that just
+    // resolved had a winner, so the agent talked to someone.
+    if (session.holdAfterHuman && batch.winnerLegId && !session.paused) {
+      session.paused = true;
+      this.emit('session:paused', { ...this.snapshotSession(session.id), reason: 'after_human' });
+    }
+
+    const advance = () => {
+      if (session.state === SessionState.STOPPED) return;
+      if (session.paused) {
+        session.pendingAdvance = true;
+        return;
+      }
       this.#dialNextBatch(session).catch((err) => {
         log.error('failed to advance to next batch', { sessionId: session.id, err });
         this.emit('session:error', { sessionId: session.id, message: err?.message ?? String(err) });
       });
-    });
+    };
+
+    // Dial the next batch on a fresh tick so listeners see `batch:resolved`
+    // before `batch:started` for the successor.
+    if (session.advanceDelayMs > 0 && !session.paused) {
+      setTimeout(advance, session.advanceDelayMs).unref?.();
+    } else {
+      setImmediate(advance);
+    }
   }
 
   // ─────────────────────────────────────────────────── Twilio status hooks ────
@@ -746,6 +816,7 @@ export class DialerEngine extends EventEmitter {
       state: session.state,
       batchSize: session.batchSize,
       screening: session.screening,
+      paused: session.paused,
       remainingLeads: session.queue.length,
       stats: { ...session.stats },
       startedAt: session.startedAt,

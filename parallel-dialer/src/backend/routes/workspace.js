@@ -8,6 +8,10 @@ import express from 'express';
 
 import { logger } from '../../utils/logger.js';
 import { createOperatorAuth } from '../operatorAuth.js';
+import { isSupabaseConfigured } from '../db/supabase.js';
+import { insertCallLog, updateCallLogOutcome, queryCallLogs } from '../db/callLogsDb.js';
+import { fireSessionWebhook } from '../makeWebhook.js';
+import { AGENT_OUTCOME_LABELS } from '../hubspotService.js';
 
 const log = logger.child({ module: 'routes/workspace' });
 
@@ -55,17 +59,51 @@ export function createWorkspaceRouter({ store, outcomeQueue = null, auth = creat
     }
   });
 
-  /** Append one finished session's summary. */
+  /** Append one finished session's summary. Also fires Make webhook. */
   router.post('/session-history', auth.guard, async (req, res) => {
     const summary = req.body ?? {};
     if (!summary.id) return res.status(400).json({ error: 'summary_id_required' });
 
     try {
       const result = await store.appendSessionHistory(summary);
+
+      // Fire Make webhook in background — don't block the response
+      fireSessionWebhook(summary).catch((err) =>
+        log.warn('make webhook background fire failed', { err }),
+      );
+
       return res.status(201).json(result);
     } catch (err) {
       log.error('failed to append session history', { err });
       return res.status(500).json({ error: 'append_failed', message: err.message });
+    }
+  });
+
+  /** Log a single completed call leg to Supabase (when configured). */
+  router.post('/call-logs', auth.guard, async (req, res) => {
+    if (!isSupabaseConfigured()) return res.status(202).json({ accepted: false, reason: 'supabase_not_configured' });
+    try {
+      const row = await insertCallLog(req.body ?? {});
+      return res.status(201).json(row ?? { accepted: true });
+    } catch (err) {
+      log.error('failed to insert call log', { err });
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  /** Query call logs — filterable by sessionId, date, campaignName. */
+  router.get('/call-logs', auth.guard, async (req, res) => {
+    if (!isSupabaseConfigured()) return res.json([]);
+    try {
+      const logs = await queryCallLogs({
+        sessionId:    req.query.sessionId,
+        date:         req.query.date,
+        campaignName: req.query.campaignName,
+        limit:        req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.json(logs);
+    } catch (err) {
+      return res.status(500).json({ error: err.message });
     }
   });
 
@@ -78,9 +116,23 @@ export function createWorkspaceRouter({ store, outcomeQueue = null, auth = creat
    * synced.
    */
   router.post('/outcomes', auth.guard, (req, res) => {
-    const { callSid, outcome, notes } = req.body ?? {};
+    const { callSid, sessionId, outcome, notes } = req.body ?? {};
     if (!callSid) return res.status(400).json({ error: 'callSid_required' });
     if (!outcome) return res.status(400).json({ error: 'outcome_required' });
+
+    // Supabase call log first, independent of HubSpot: custom dispositions
+    // (Interested, Wrong Number, …) have no HubSpot equivalent but still
+    // belong in the log.
+    if (isSupabaseConfigured()) {
+      updateCallLogOutcome({ callSid, sessionId, outcome, notes: notes ?? '' }).catch((err) =>
+        log.warn('supabase outcome update failed', { callSid, err }),
+      );
+    }
+
+    // HubSpot only understands its own three outcome keys.
+    if (!AGENT_OUTCOME_LABELS[outcome]) {
+      return res.status(202).json({ accepted: isSupabaseConfigured(), reason: 'no_hubspot_mapping' });
+    }
 
     if (!outcomeQueue) {
       log.warn('outcome logged but HubSpot is not configured — nothing to write to', { callSid, outcome });
