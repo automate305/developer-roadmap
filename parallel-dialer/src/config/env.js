@@ -107,7 +107,7 @@ export const config = Object.freeze({
    * `src/backend/telephonyClient.js`, the only module that reads this.
    */
   telephony: {
-    provider: str('TELEPHONY_PROVIDER', 'twilio'), // 'twilio' | 'signalwire'
+    provider: str('TELEPHONY_PROVIDER', 'signalwire'), // 'twilio' | 'signalwire'
   },
 
   twilio: {

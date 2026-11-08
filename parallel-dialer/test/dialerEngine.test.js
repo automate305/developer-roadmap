@@ -5,7 +5,13 @@
 import assert from 'node:assert/strict';
 import { describe, it, beforeEach } from 'node:test';
 
-import { DialerEngine, Disposition, LegState, normalizeLead } from '../src/backend/dialerEngine.js';
+// The bridge assertions below expect Twilio's `<Client>` noun. The provider is
+// chosen once at module load and the project default is now SignalWire, so pin
+// Twilio before importing (dynamic import: static imports are hoisted above
+// this line). The SignalWire `<Sip>`/`<Number>` nouns are covered in
+// telephonyClient.signalwire.test.js.
+process.env.TELEPHONY_PROVIDER = 'twilio';
+const { DialerEngine, Disposition, LegState, normalizeLead } = await import('../src/backend/dialerEngine.js');
 
 /** Twilio REST double: hands out predictable SIDs and records teardowns. */
 function makeHarness() {
