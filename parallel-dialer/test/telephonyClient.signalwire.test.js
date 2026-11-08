@@ -37,10 +37,10 @@ describe('telephonyClient (signalwire provider)', () => {
   });
 
   it('bridges the agent with a <Sip> noun pointed at the SIP endpoint domain, not <Client>', () => {
-    assert.equal(buildAgentDialNoun('agent_1'), '<Sip>sip:agent_1@example.signalwire.com</Sip>');
+    assert.equal(buildAgentDialNoun('agent_1'), '<Sip>sip:agent_1@example.sip.signalwire.com</Sip>');
   });
 
   it('escapes XML-unsafe characters in the identity', () => {
-    assert.equal(buildAgentDialNoun('agent&1'), '<Sip>sip:agent&amp;1@example.signalwire.com</Sip>');
+    assert.equal(buildAgentDialNoun('agent&1'), '<Sip>sip:agent&amp;1@example.sip.signalwire.com</Sip>');
   });
 });

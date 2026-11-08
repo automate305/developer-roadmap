@@ -71,6 +71,21 @@ export function derivePublicBaseUrl() {
 
 const publicBaseUrl = derivePublicBaseUrl();
 
+/**
+ * "your-space.signalwire.com" → "your-space.sip.signalwire.com". Anything that
+ * does not look like a SignalWire space host is returned unchanged.
+ * @param {string | undefined} spaceUrl
+ */
+export function deriveSipDomain(spaceUrl) {
+  if (!spaceUrl) return undefined;
+  if (/\.sip\.signalwire\.com$/i.test(spaceUrl)) return spaceUrl;
+  return spaceUrl.replace(/\.signalwire\.com$/i, '.sip.signalwire.com');
+}
+
+const signalwireSpaceUrl = (str('SIGNALWIRE_SPACE_URL') ?? str('SIGNALWIRE_SPACE'))
+  ?.replace(/^https?:\/\//, '')
+  .replace(/\/+$/, '');
+
 export const config = Object.freeze({
   env: str('NODE_ENV', 'development'),
   isProduction: str('NODE_ENV', 'development') === 'production',
@@ -92,7 +107,7 @@ export const config = Object.freeze({
    * `src/backend/telephonyClient.js`, the only module that reads this.
    */
   telephony: {
-    provider: str('TELEPHONY_PROVIDER', 'twilio'), // 'twilio' | 'signalwire'
+    provider: str('TELEPHONY_PROVIDER', 'signalwire'), // 'twilio' | 'signalwire'
   },
 
   twilio: {
@@ -126,10 +141,23 @@ export const config = Object.freeze({
     projectId: str('SIGNALWIRE_PROJECT_ID'),
     apiToken: str('SIGNALWIRE_API_TOKEN'),
     // e.g. "your-space.signalwire.com" — no scheme, no trailing slash.
-    spaceUrl: str('SIGNALWIRE_SPACE_URL'),
+    // SIGNALWIRE_SPACE is accepted as an alias because that is the name the
+    // credentials were first handed over under.
+    spaceUrl: signalwireSpaceUrl,
+    // Webhook signatures are HMACs keyed by the project's Signing Key
+    // (Dashboard → API Credentials → Signing Key), a separate secret from the
+    // API token. Falls back to the API token only so existing setups keep
+    // booting; validateConfig() warns when that fallback is in use, because on
+    // a project whose Signing Key differs every cXML webhook would be a 403.
+    signingKey: str('SIGNALWIRE_SIGNING_KEY'),
     callerId: str('SIGNALWIRE_CALLER_ID'),
     tokenTtlSeconds: Math.min(int('SIGNALWIRE_TOKEN_TTL_SECONDS', 3600), 86400),
     validateSignature: bool('SIGNALWIRE_VALIDATE_SIGNATURE', true),
+    // SIP Endpoints live on the space's SIP subdomain
+    // ("your-space.sip.signalwire.com"), not the REST host — a <Sip> URI on
+    // the REST host reaches nothing. Override only if the Dashboard's SIP
+    // Endpoint page shows a different domain.
+    sipDomain: str('SIGNALWIRE_SIP_DOMAIN') ?? deriveSipDomain(signalwireSpaceUrl),
     sipEndpointUsername: str('SIGNALWIRE_SIP_ENDPOINT_USERNAME'),
     sipEndpointPassword: str('SIGNALWIRE_SIP_ENDPOINT_PASSWORD'),
   },
@@ -231,7 +259,16 @@ export function validateConfig() {
     warnings.push('HUBSPOT_CLIENT_SECRET is unset — the lead webhook will reject every request.');
   }
   if (usingSignalwire) {
-    if (!config.signalwire.sipEndpointUsername || !config.signalwire.sipEndpointPassword) {
+    if (config.signalwire.validateSignature && !config.signalwire.signingKey) {
+      warnings.push(
+        'SIGNALWIRE_SIGNING_KEY is unset — webhook signatures are checked against the API token instead. ' +
+          'If the project Signing Key differs, every cXML webhook will be rejected with 403.',
+      );
+    }
+    // Phone-bridge mode (AGENT_PHONE_NUMBER) dials the winner to the agent's
+    // phone, so it needs no SIP Endpoint.
+    const sipMissing = !config.signalwire.sipEndpointUsername || !config.signalwire.sipEndpointPassword;
+    if (!config.dialer.agentPhoneNumber && sipMissing) {
       warnings.push(
         'SIGNALWIRE_SIP_ENDPOINT_USERNAME/PASSWORD missing — the agent softphone has nothing to register as, ' +
           'so a winning leg can never be bridged.',

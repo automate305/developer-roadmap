@@ -75,7 +75,7 @@ export const callerId = usingSignalwire ? config.signalwire.callerId : config.tw
  * This is the single biggest deviation from the original migration plan
  * (which assumed `@signalwire/js` could replace `@twilio/voice-sdk` as a
  * same-shape Device/Call object) and the single highest-risk assumption in
- * the whole branch: the SIP URI shape below (`sip:{identity}@{spaceUrl}`)
+ * the whole branch: the SIP URI shape below (`sip:{identity}@{space}.sip.signalwire.com`)
  * matches how a SignalWire SIP Endpoint is dialled from cXML in SignalWire's
  * own docs, but has not been exercised against a live account. Test this
  * first if you pick this branch back up.
@@ -88,7 +88,7 @@ export function buildAgentDialNoun(identity) {
   if (config.dialer.agentPhoneNumber) {
     return `<Number>${escapeXml(config.dialer.agentPhoneNumber)}</Number>`;
   }
-  const sipDomain = config.signalwire.spaceUrl;
+  const { sipDomain } = config.signalwire;
   return `<Sip>sip:${escapeXml(identity)}@${escapeXml(sipDomain)}</Sip>`;
 }
 

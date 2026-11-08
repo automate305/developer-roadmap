@@ -49,21 +49,15 @@ describe('derivePublicBaseUrl', () => {
   });
 });
 
-describe('validateConfig — provider-dependent requirements', () => {
-  // `config` is a frozen snapshot taken at module load, computed from
-  // `process.env` at import time — these assertions run against whatever
-  // TELEPHONY_PROVIDER this process happened to start with (unset in this
-  // file ⇒ 'twilio'; see telephonyClient.signalwire.test.js for the
-  // SignalWire branch of the *telephony client* dispatch, which has the same
-  // load-order constraint). Here we only check that validateConfig() itself
-  // asks for the right env vars given whichever provider is active.
-  it('requires the Twilio trio when no provider override is in effect', async () => {
-    const { validateConfig, config } = await import('../src/config/env.js');
-    if (config.telephony.provider !== 'twilio') return; // guarded, see note above
-    const { missing } = validateConfig();
-    for (const key of ['TWILIO_ACCOUNT_SID', 'TWILIO_AUTH_TOKEN', 'TWILIO_CALLER_ID']) {
-      if (!process.env[key]) assert.ok(missing.includes(key), `expected ${key} in missing`);
-    }
-    assert.ok(!missing.some((k) => k.startsWith('SIGNALWIRE_')));
+describe('telephony provider default', () => {
+  // `config` is a frozen snapshot taken at module load. This file never sets
+  // TELEPHONY_PROVIDER, so when the shell doesn't either, the default applies.
+  // The per-provider requirement checks live in telephonyClient.test.js
+  // (Twilio) and config.signalwire.test.js (SignalWire), each pinned in its
+  // own process.
+  it('defaults to signalwire when TELEPHONY_PROVIDER is unset', async (t) => {
+    if (process.env.TELEPHONY_PROVIDER) return t.skip('TELEPHONY_PROVIDER set in the shell');
+    const { config } = await import('../src/config/env.js');
+    assert.equal(config.telephony.provider, 'signalwire');
   });
 });

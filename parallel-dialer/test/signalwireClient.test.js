@@ -19,6 +19,7 @@ process.env.TELEPHONY_PROVIDER = 'signalwire';
 process.env.SIGNALWIRE_PROJECT_ID = 'proj_test';
 process.env.SIGNALWIRE_API_TOKEN = 'tok_test';
 process.env.SIGNALWIRE_SPACE_URL = 'example.signalwire.com';
+process.env.SIGNALWIRE_SIGNING_KEY = 'signing_test';
 process.env.SIGNALWIRE_SIP_ENDPOINT_USERNAME = 'agent_1';
 process.env.SIGNALWIRE_SIP_ENDPOINT_PASSWORD = 'sip_secret';
 process.env.PUBLIC_BASE_URL = 'https://dialer.example.com';
@@ -49,8 +50,8 @@ describe('createVoiceAccessToken', () => {
     assert.equal(result.token, 'sip_secret');
     assert.equal(result.identity, 'agent_1');
     assert.equal(result.expiresInSeconds, 3600);
-    assert.equal(result.sipDomain, 'example.signalwire.com');
-    assert.equal(result.wsServer, 'wss://example.signalwire.com');
+    assert.equal(result.sipDomain, 'example.sip.signalwire.com');
+    assert.equal(result.wsServer, 'wss://example.sip.signalwire.com');
   });
 
   // The "SIP Endpoint not configured" / "identity mismatch" branches need a
@@ -92,15 +93,26 @@ describe('signalwireWebhookAuth', () => {
     return { nextCalled, statusCode, sent };
   }
 
-  it('accepts a correctly signed request', () => {
+  it('accepts a request signed with the project Signing Key', () => {
     const body = { CallSid: 'CA123', CallStatus: 'ringing' };
     const url = 'https://dialer.example.com/twiml/outbound';
-    const signature = sign('tok_test', url, body);
+    const signature = sign('signing_test', url, body);
     const { nextCalled } = runMiddleware({
       headers: { 'x-signalwire-signature': signature },
       body,
     });
     assert.equal(nextCalled, true);
+  });
+
+  it('rejects a request signed with the API token once a Signing Key is set', () => {
+    const body = { CallSid: 'CA123', CallStatus: 'ringing' };
+    const signature = sign('tok_test', 'https://dialer.example.com/twiml/outbound', body);
+    const { nextCalled, statusCode } = runMiddleware({
+      headers: { 'x-signalwire-signature': signature },
+      body,
+    });
+    assert.equal(nextCalled, false);
+    assert.equal(statusCode, 403);
   });
 
   it('rejects a missing signature', () => {
@@ -112,7 +124,7 @@ describe('signalwireWebhookAuth', () => {
   it('rejects a tampered body', () => {
     const body = { CallSid: 'CA123', CallStatus: 'ringing' };
     const url = 'https://dialer.example.com/twiml/outbound';
-    const signature = sign('tok_test', url, body);
+    const signature = sign('signing_test', url, body);
     const { nextCalled, statusCode } = runMiddleware({
       headers: { 'x-signalwire-signature': signature },
       body: { ...body, CallStatus: 'completed' },
