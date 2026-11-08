@@ -121,7 +121,7 @@ export async function redirectCall(callSid, twiml) {
  * @param {string} identity expected to equal `SIGNALWIRE_SIP_ENDPOINT_USERNAME`
  */
 export async function createVoiceAccessToken(identity) {
-  const { spaceUrl, sipEndpointUsername, sipEndpointPassword, tokenTtlSeconds } = config.signalwire;
+  const { sipDomain, sipEndpointUsername, sipEndpointPassword, tokenTtlSeconds } = config.signalwire;
 
   if (config.dialer.agentPhoneNumber && (!sipEndpointUsername || !sipEndpointPassword)) {
     return {
@@ -133,7 +133,7 @@ export async function createVoiceAccessToken(identity) {
     };
   }
 
-  if (!spaceUrl || !sipEndpointUsername || !sipEndpointPassword) {
+  if (!sipDomain || !sipEndpointUsername || !sipEndpointPassword) {
     throw new Error(
       'Cannot hand out SIP credentials: SIGNALWIRE_SPACE_URL / SIGNALWIRE_SIP_ENDPOINT_USERNAME / ' +
         'SIGNALWIRE_SIP_ENDPOINT_PASSWORD are not configured',
@@ -155,8 +155,10 @@ export async function createVoiceAccessToken(identity) {
     // Extra fields the Twilio path has no use for — SIP.js needs the
     // WebSocket server and SIP domain explicitly; a JWT carries no such
     // thing to parse them out of.
-    sipDomain: spaceUrl,
-    wsServer: `wss://${spaceUrl}`,
+    // The SIP subdomain, matching the <Sip> URI the engine dials. The WSS
+    // endpoint on that host is unverified against a live account.
+    sipDomain,
+    wsServer: `wss://${sipDomain}`,
   };
 }
 
@@ -194,7 +196,8 @@ export function signalwireWebhookAuth() {
 
     const signature = req.get('X-SignalWire-Signature') ?? req.get('X-Twilio-Signature');
     const url = `${config.publicBaseUrl}${req.originalUrl}`;
-    const expected = computeSignature(config.signalwire.apiToken ?? '', url, req.body ?? {});
+    const signingKey = config.signalwire.signingKey ?? config.signalwire.apiToken ?? '';
+    const expected = computeSignature(signingKey, url, req.body ?? {});
 
     const valid =
       Boolean(signature) &&

@@ -19,7 +19,8 @@
     "dev:all": "concurrently -n api,web -c blue,magenta \"npm:dev\" \"npm:dev:web\"",
     "lint": "eslint src",
     "test": "node --test test/*.test.js",
-    "score:amd": "node scripts/score-amd.mjs"
+    "score:amd": "node scripts/score-amd.mjs",
+    "preflight:gate1": "node scripts/gate1-preflight.mjs"
   },
   "keywords": [
     "parallel-dialer",
