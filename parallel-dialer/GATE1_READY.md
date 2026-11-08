@@ -1,11 +1,13 @@
 # Gate 1 readiness: the first real call
 
-Checked 2026-11-07, branch `feat/gate1-prep`. The carrier is **SignalWire** (`TELEPHONY_PROVIDER` defaults to `signalwire`).
+Checked 2026-11-08, branch `feat/gate1-prep`, based on `origin/master` 52edb8a17 (includes #21 phone-bridge and #24).
+The carrier is **SignalWire**. On `master` the code default is still `twilio`, so Railway **must** set `TELEPHONY_PROVIDER=signalwire`.
 **No real call has been placed.** Every item below about live behaviour is still unproven (see `codex-handover.md`, Gate 1).
 
 What was checked:
 - **Key names:** `md-secret list` (empty) and `~/Desktop/A305 Dialer/env.txt` (3 names). No values were printed.
-- **SignalWire:** read-only API calls using the env.txt credentials. No calls were placed, nothing was bought.
+- **SignalWire:** read-only API calls using the env.txt credentials, re-run 2026-11-08 (`npm run preflight:gate1`). Account API 200, Calls API 200, phone-numbers API 401. No calls were placed, nothing was bought.
+- **Not checked (no access from here):** whether a Railway service, Deepgram account or HubSpot private app already exists. Marked MISSING because no key for them exists in either source.
 
 ## 1. Checklist
 
@@ -45,6 +47,8 @@ What was checked:
 | Durable paths | `AMD_AUDIT_PATH=/data/amd-audit.jsonl`, `WORKSPACE_DATA_DIR=/data/workspace`, `HUBSPOT_DEAD_LETTER_PATH=/data/crm-dead-letter.jsonl`, `HUBSPOT_OUTCOME_DEAD_LETTER_PATH=/data/crm-outcome-dead-letter.jsonl` | **MISSING** | |
 | First-call mode | `DIALER_SCREENING=false`, `DIALER_BATCH_SIZE=1` | set per session | Power-dial mode: one line, and no answer-detection verdict can drop the call. The session request below sets both. |
 | A phone to dial | n/a | **MISSING** | A second phone Cam owns (not `AGENT_PHONE_NUMBER`). Dial only numbers you control. |
+
+| Provider switch | `TELEPHONY_PROVIDER=signalwire` | **MISSING** | Required: the code default on `master` is `twilio`, which would demand Twilio keys and fail boot. |
 
 Twilio variables are not needed while `TELEPHONY_PROVIDER=signalwire`.
 `DEPLOY_RAILWAY.md` §4 still lists the Twilio block. Use the SignalWire block below instead.
@@ -113,7 +117,7 @@ curl -sS -X POST "$DIALER/api/sessions" \
 
 Answer `TEST_LEAD`. `AGENT_PHONE_NUMBER` should ring next. Answer it, talk both ways, then hang up.
 
-When done, end the session:
+After the connected call ends, a power-dial session goes to `PAUSED` (waits for an outcome). The `id` is in the JSON the POST returned. End it:
 
 ```bash
 curl -sS -X DELETE -H "x-dialer-key: $DIALER_API_KEY" "$DIALER/api/sessions/<id>"
@@ -147,11 +151,11 @@ After that, the rest of Gate 1:
    - Fix: the SIP domain is now derived from the space (override with `SIGNALWIRE_SIP_DOMAIN`). The browser SIP registration uses the same domain. That registration is still unverified live.
 3. **`SIGNALWIRE_SPACE` alias.** The credentials were handed over under that name. The code also strips a stray `https://` or trailing `/`.
 4. **Phone-bridge mode no longer warns about a missing SIP Endpoint.** It doesn't need one.
-5. **Tests that assumed Twilio was the default.** The default became SignalWire in the latest commit, and 5 tests failed on it before this branch. They now pin `TELEPHONY_PROVIDER=twilio` explicitly.
-6. **New:** `scripts/gate1-preflight.mjs` (`npm run preflight:gate1`), a new config test, and `.env.example` documents the new vars.
+5. **New:** `scripts/gate1-preflight.mjs` (`npm run preflight:gate1`), a new config test, and `.env.example` documents the new vars.
 
-`npm test`: 125/125 pass. `npm run build`: clean.
-One caveat: the operatorAuth tests need local port binding, so they only pass outside the agent sandbox.
+These were first written on a stale copy (commit 39d8052, separate repo) and ported onto `origin/master`; they applied cleanly.
+
+`npm test` in the agent sandbox: 123 tests, 118 pass. The 5 that fail are all in `test/operatorAuth.test.js` and fail with `listen EPERM` (the sandbox blocks local ports), not a code fault. Run `npm test` on a normal machine to confirm 123/123 before merging. `npm run build`: clean.
 
 **Still unverified until a live call:**
 - whether SignalWire's media-stream frames match Twilio's shape (`start.customParameters`, `media.payload`)
